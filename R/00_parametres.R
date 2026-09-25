@@ -72,6 +72,19 @@ ETATS_EXCLUS_ABONDANCE <- c("Mort_Ancien")
 # A FAIRE CONFIRMER selon la fiche de terrain.
 BELT_MODE_COMPTAGE <- "somme"
 
+# Categories LIT comptees comme "algues" dans l'indicateur Algues/Corail.
+# Les algues calcaires encroutantes (corallinacees) en sont exclues : ce
+# sont des algues "favorables" (substrat de fixation des larves de corail)
+# qui ne signalent pas une derive vers la dominance algale. Pour revenir
+# a l'ancien calcul, ajouter "Algues calcaires encroutantes".
+CATEGORIES_ALGUES_RATIO <- c("Macroalgues molles", "Turf algal", "Macroalgues calcaires")
+
+# Poissons : taille (cm) attribuee a la classe "> 40 cm" pour le calcul de
+# biomasse (a x L^b). 40 = borne basse (hypothese prudente, biomasse des
+# gros individus sous-estimee) ; 45 ou 50 sont aussi utilises selon les
+# protocoles - a harmoniser avec le rapport Bouchon pour comparer.
+TAILLE_CLASSE_PLUS_40_CM <- 40
+
 # --- 5. Mise en forme des graphiques -------------------------------------
 POLICE_GRAPHS      <- "sans"   # ex. "Montserrat" si installee sur l'ordinateur
 TAILLE_POLICE_BASE <- 10

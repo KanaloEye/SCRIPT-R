@@ -145,3 +145,34 @@ comparer_annees <- function(df, valeur, groupe = "Station", annee = "Annee") {
   if (nrow(res) == 0) return(vide)
   res
 }
+
+# --- Doublons entre sources --------------------------------------------------
+# Plusieurs sources reprennent les memes chiffres (ex. le fichier ATE
+# integre les valeurs du rapport Bouchon 2020-2024 et la valeur ReefDB
+# 2022). Pour une meme Station x Annee, une valeur IDENTIQUE (a la
+# tolerance pres) deja fournie par une source plus prioritaire est retiree,
+# pour ne pas afficher deux fois la meme mesure ni gonfler les tendances.
+# Priorite : extraction ReefDB > historique ATE > rapport Bouchon.
+PRIORITE_SOURCES <- c("Extraction_ReefDB_LIT", "Extraction_ReefDB_Quadrat", "Extraction_ReefDB_BELT",
+                      "Historique_ATE", "Rapport_Bouchon_2024", "Recrutement_Bouchon_2024")
+
+dedoublonner_sources <- function(df, valeur, groupes = c("Station", "Annee"), tolerance = 0.015, libelle = valeur) {
+  if (is.null(df) || nrow(df) == 0) return(df)
+  est_doublon <- function(v) vapply(seq_along(v), function(i) {
+    i > 1 && !is.na(v[i]) && any(abs(v[seq_len(i - 1)] - v[i]) <= tolerance, na.rm = TRUE)
+  }, logical(1))
+  marque <- df %>%
+    dplyr::mutate(.prio = match(Source, PRIORITE_SOURCES), .prio = ifelse(is.na(.prio), 99, .prio),
+                  .ligne = dplyr::row_number(), .v = .data[[valeur]]) %>%
+    dplyr::group_by(dplyr::across(dplyr::all_of(groupes))) %>%
+    dplyr::arrange(.prio, .ligne, .by_group = TRUE) %>%
+    dplyr::mutate(.doublon = est_doublon(.v)) %>%
+    dplyr::ungroup()
+  retires <- marque %>% dplyr::filter(.doublon)
+  if (nrow(retires) > 0) {
+    cat("\nDoublons entre sources retires (", libelle, ") - valeur deja fournie par une source prioritaire :\n", sep = "")
+    print(retires %>% dplyr::select(dplyr::all_of(groupes), Source, dplyr::all_of(valeur)), n = Inf)
+  }
+  marque %>% dplyr::filter(!.doublon) %>% dplyr::arrange(.ligne) %>%
+    dplyr::select(-.prio, -.ligne, -.v, -.doublon)
+}

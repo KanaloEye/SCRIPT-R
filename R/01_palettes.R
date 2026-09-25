@@ -152,6 +152,9 @@ Palette_oursin <- c(
   "Meoma ventricosa" = 'gray32'
 )
 
+# Couleur des categories "non renseigne" (especes absentes du referentiel...)
+COULEUR_NON_RENSEIGNE <- "grey75"
+
 # --- Poissons ------------------------------------------------------------------
 Palette_regime_trophique <- c("Herbivore" = 'yellowgreen',
                               "Planctonophage" = 'lightblue',

@@ -165,6 +165,16 @@ if (nrow(categories_non_reconnues) > 0) {
 # Methode LIT classique : la longueur du segment associe a un point de
 # transition = distance entre ce point et le point de transition precedent
 # (le premier segment part de 0, ou de Origine_m si renseignee).
+# Controle d'unite : l'en-tete ReefDB annonce des "Centimetre" mais les
+# points de transition sont en METRES (0 a 30 m). Si un jour l'export
+# passe reellement en cm, on convertit automatiquement plutot que de
+# produire des recouvrements x100.
+if (max(LIT_BENTHOS$Transition_m, na.rm = TRUE) > 1.5 * LONGUEUR_TRANSECT_LIT_M) {
+  warning("Points de transition LIT > ", 1.5 * LONGUEUR_TRANSECT_LIT_M,
+          " : valeurs interpretees comme des centimetres et converties en metres.", call. = FALSE)
+  LIT_BENTHOS$Transition_m <- LIT_BENTHOS$Transition_m / 100
+}
+
 LIT_BENTHOS <- LIT_BENTHOS %>%
   arrange(Station, Date, Annee, Replicat, Transition_m) %>%
   group_by(Station, Date, Annee, Replicat) %>%
@@ -283,8 +293,10 @@ print(Necrose_classes)
 # le temps traduit generalement un phase-shift algues au detriment du
 # corail. Calcule a partir de Recouvrement_detail_replicat (categories
 # fines), agrege par replicat puis moyenne par Station x Annee.
-Categories_algues <- c("Macroalgues molles", "Turf algal",
-                        "Macroalgues calcaires", "Algues calcaires encroutantes")
+# NB : les algues calcaires encroutantes (corallinacees) sont EXCLUES du
+# ratio : elles favorisent le recrutement corallien et ne traduisent pas
+# un phase-shift (cf. CATEGORIES_ALGUES_RATIO dans R/00_parametres.R)
+Categories_algues <- CATEGORIES_ALGUES_RATIO
 
 Ratio_algues_corail_replicat <- Recouvrement_detail_replicat %>%
   mutate(Groupe_ratio = case_when(
@@ -823,7 +835,7 @@ function_taillePOISSONS <- function(REPLICAT_Classe_de_taille_poissons_Protocole
   } else if (grepl("30 - 40 cm", REPLICAT_Classe_de_taille_poissons_Protocole_BELT_recifs_._suivi_exhaustif)) {
     return("35")
   } else if (grepl("> 40 cm", REPLICAT_Classe_de_taille_poissons_Protocole_BELT_recifs_._suivi_exhaustif)) {
-    return("40")
+    return(as.character(TAILLE_CLASSE_PLUS_40_CM))
   } else {
     return("")
   }
@@ -1274,14 +1286,27 @@ Trophique_moderne <- POISSONS %>%
       Regime_trophique == "Carnivore1"     ~ "C1",
       Regime_trophique == "Carnivore2"     ~ "C2",
       Regime_trophique == "Piscivore"      ~ "Pi",
-      TRUE ~ NA_character_
+      # especes sans regime dans Liste_147_Poissons.xlsx : conservees dans
+      # une categorie "ND" (auparavant supprimees APRES le calcul des %, d'ou
+      # des barres qui n'atteignaient pas 100 %)
+      TRUE ~ "ND"
     ),
-    Groupe_trophique = factor(Groupe_trophique, levels = c("He", "Om", "Pl", "C1", "C2", "Pi")),
+    Groupe_trophique = factor(Groupe_trophique, levels = c("He", "Om", "Pl", "C1", "C2", "Pi", "ND")),
     Annee = as.numeric(Annee),
     Source = "Extraction_ReefDB_BELT"
   ) %>%
-  filter(!is.na(Groupe_trophique)) %>%
+  filter(Pourcentage > 0 | Groupe_trophique != "ND") %>%
   select(Station, Annee, Paramètre, Groupe_trophique, Pourcentage, Source)
+
+Especes_sans_regime <- POISSONS %>%
+  filter(Abondance > 0, is.na(Regime_trophique) | Regime_trophique == "") %>%
+  group_by(Station, Annee, Taxon) %>%
+  summarise(Abondance = sum(Abondance), .groups = "drop")
+if (nrow(Especes_sans_regime) > 0) {
+  warning(n_distinct(Especes_sans_regime$Taxon), " espece(s) sans regime trophique dans Liste_147_Poissons.xlsx ",
+          "(comptee(s) en 'Regime non renseigne' dans la structure trophique) : ",
+          paste(unique(Especes_sans_regime$Taxon), collapse = ", "), call. = FALSE)
+}
 
 
 BDD_evolution_poissons <- Poissons_indicateurs_modernes %>% arrange(Station, Annee)
@@ -1367,6 +1392,28 @@ if (file.exists(FICHIER_BOUCHON_POISSONS)) {
 
 cat("\nApercu - indicateurs poissons :\n")
 print(BDD_evolution_poissons, n = Inf)
+# Controle : chaque barre (Station x Annee x Parametre) doit faire 100 %.
+# Un ecart (arrondis du rapport, categorie absente...) est complete par la
+# categorie "ND" plutot que de laisser une barre incomplete sans explication.
+Trophique_historique <- Trophique_historique %>%
+  mutate(Groupe_trophique = factor(as.character(Groupe_trophique),
+                                   levels = c("He", "Om", "Pl", "C1", "C2", "Pi", "ND")))
+Ecarts_trophique <- Trophique_historique %>%
+  group_by(Station, Annee, Paramètre, Source) %>%
+  summarise(Total = sum(Pourcentage, na.rm = TRUE), .groups = "drop") %>%
+  filter(abs(Total - 100) > 0.5)
+if (nrow(Ecarts_trophique) > 0) {
+  cat("\nATTENTION - structure trophique : total different de 100 % (complete par 'ND' si < 100) :\n")
+  print(Ecarts_trophique)
+  Trophique_historique <- bind_rows(
+    Trophique_historique,
+    Ecarts_trophique %>% filter(Total < 100) %>%
+      transmute(Station, Annee, Paramètre, Source,
+                Groupe_trophique = factor("ND", levels = levels(Trophique_historique$Groupe_trophique)),
+                Pourcentage = round(100 - Total, 1))
+  ) %>% arrange(Station, Annee)
+}
+
 cat("\nApercu - structure trophique :\n")
 print(Trophique_historique, n = Inf)
 ```
@@ -1651,7 +1698,8 @@ Recrues_longue <- BDD_evolution_benthos %>%
   left_join(Recrues_modernes %>% select(Station, Annee, Recrues_sd), by = c("Station", "Annee")) %>%
   # l'ecart-type ne concerne que la ligne "extraction" de l'annee
   mutate(Recrues_sd = ifelse(Source == "Extraction_ReefDB_LIT", Recrues_sd, NA_real_),
-         Source = ifelse(Source == "Extraction_ReefDB_LIT", "Extraction_ReefDB_Quadrat", Source))
+         Source = ifelse(Source == "Extraction_ReefDB_LIT", "Extraction_ReefDB_Quadrat", Source)) %>%
+  dedoublonner_sources("Recrues_m2", libelle = "recrues/m2")
 
 # Oursins : rapport Bouchon (feuille Oursins_effectifs, Baleine uniquement)
 # + densite moyenne des quadrats OURSINS (section 1.4)
@@ -1676,7 +1724,8 @@ if (file.exists(FICHIERS$BOUCHON_2024) &&
     select(Station, Date, Annee, Densite_m2, Oursins_sd, Source)
   Oursins_longue <- bind_rows(Oursins_historique, Oursins_longue)
 }
-Oursins_longue <- Oursins_longue %>% arrange(Station, Annee)
+Oursins_longue <- Oursins_longue %>% arrange(Station, Annee) %>%
+  dedoublonner_sources("Densite_m2", libelle = "oursins/m2")
 
 cat("\nApercu - Recrues_longue :\n"); print(Recrues_longue, n = Inf)
 cat("\nApercu - Oursins_longue :\n"); print(Oursins_longue, n = Inf)
@@ -1904,7 +1953,9 @@ for (station_value in unique(Recouvrement_detail_historique$Station)) {
 BDD_long <- BDD_evolution_benthos %>%
   select(Station, Date, Annee, Source, `Corail dur` = Recouvrement_corallien_pct,
          Macroalgues = Recouvrement_macroalgues_pct) %>%
-  pivot_longer(c(`Corail dur`, Macroalgues), names_to = "Indicateur", values_to = "Pourcentage")
+  pivot_longer(c(`Corail dur`, Macroalgues), names_to = "Indicateur", values_to = "Pourcentage") %>%
+  filter(!is.na(Pourcentage)) %>%
+  dedoublonner_sources("Pourcentage", groupes = c("Station", "Annee", "Indicateur"), libelle = "recouvrement %")
 
 for (station_value in unique(BDD_long$Station)) {
   p <- graph_serie(BDD_long %>% filter(Station == station_value), "Date", "Pourcentage", "Indicateur",
@@ -2122,7 +2173,8 @@ for (station_value in unique(Recouvrement_macroalgues_global$Station)) {
 ```{r}
 # Proportions (%) d'abondance et de biomasse par regime trophique, derniere annee
 Regime_trophique_pct_ANNEE <- REPLICAT_Regime_trophique_POISSONS_ANNEE_MEAN %>%
-  filter(!is.na(Regime_trophique), Regime_trophique != "") %>%
+  mutate(Regime_trophique = ifelse(is.na(Regime_trophique) | Regime_trophique == "",
+                                   "Regime non renseigne", Regime_trophique)) %>%
   group_by(Station) %>%
   mutate(Abondance_pourcent = round(100 * Abondance_totale / sum(Abondance_totale), 1),
          Biomasse_pourcent  = round(100 * Biomasse_totale / sum(Biomasse_totale), 1)) %>%
@@ -2133,7 +2185,8 @@ for (station_value in unique(Regime_trophique_pct_ANNEE$Station)) {
   annee_station <- max(donnees_station$Annee, na.rm = TRUE)
   for (param in c("Abondance", "Biomasse")) {
     p <- graph_camembert(donnees_station, paste0(param, "_pourcent"), "Regime_trophique",
-                         Palette_regime_trophique[Ordre_regime_trophique],
+                         c(Palette_regime_trophique[Ordre_regime_trophique],
+                           "Regime non renseigne" = COULEUR_NON_RENSEIGNE),
                          titre = str_wrap(paste0("Composition trophique (", tolower(param), ") - ", station_value), 45),
                          sous_titre = paste("Annee", annee_station))
     sauver_graph(p, "POISSONS/Regimes_trophiques_annee_en_cours", paste0("Regime_", tolower(param), "_", station_value),
@@ -2156,7 +2209,9 @@ Indicateurs_poissons <- c(
 BDD_poissons_long <- BDD_evolution_poissons %>%
   select(Station, Date, Annee, Source, all_of(names(Indicateurs_poissons))) %>%
   pivot_longer(all_of(names(Indicateurs_poissons)), names_to = "Code", values_to = "Valeur") %>%
-  mutate(Indicateur = factor(Indicateurs_poissons[Code], levels = Indicateurs_poissons))
+  mutate(Indicateur = factor(Indicateurs_poissons[Code], levels = Indicateurs_poissons)) %>%
+  filter(!is.na(Valeur)) %>%
+  dedoublonner_sources("Valeur", groupes = c("Station", "Annee", "Code"), libelle = "indicateurs poissons")
 
 ## (a) Vue d'ensemble (facettes)
 p <- ggplot(BDD_poissons_long, aes(x = Annee, y = Valeur, colour = Station, group = Station)) +
@@ -2205,9 +2260,11 @@ for (station_value in unique(BDD_evolution_poissons$Station)) {
 
 ## (d) Structure trophique (historique Bouchon + extraction) - memes
 # couleurs que Palette_regime_trophique (abreviations He, Om... du rapport)
-Palette_trophique <- setNames(unname(Palette_regime_trophique[Abreviations_trophiques]), names(Abreviations_trophiques))
+Palette_trophique <- c(setNames(unname(Palette_regime_trophique[Abreviations_trophiques]), names(Abreviations_trophiques)),
+                       "ND" = COULEUR_NON_RENSEIGNE)
 Libelles_trophique <- c("He" = "Herbivores", "Om" = "Omnivores", "Pl" = "Planctonophages",
-                        "C1" = "Carnivores 1", "C2" = "Carnivores 2", "Pi" = "Piscivores")
+                        "C1" = "Carnivores 1", "C2" = "Carnivores 2", "Pi" = "Piscivores",
+                        "ND" = "Regime non renseigne")
 ordre_param <- c("Effectifs" = 6, "Biomasse" = 7, "Richesse spécifique" = 8)
 
 for (param in unique(Trophique_historique$Paramètre)) {

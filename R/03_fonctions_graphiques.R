@@ -195,11 +195,33 @@ graph_barres_sd <- function(df, x, y, sd = NULL, fill = NULL, palette = NULL, la
     dplyr::mutate(.x = factor(.data[[x]]),
                   .y = .data[[y]],
                   .sd = if (!is.null(sd)) .data[[sd]] else NA_real_,
-                  .fill = if (!is.null(fill)) factor(.data[[fill]]) else factor("unique"),
-                  .haut = .y + ifelse(is.na(.sd), 0, .sd),
-                  .etiq = paste0(formater_nombre(.y, decimales), suffixe))
+                  .fill = if (!is.null(fill)) factor(.data[[fill]]) else factor("unique"))
+
+  # Plusieurs valeurs pour une meme barre (ex. 2 campagnes la meme annee
+  # dans l'historique) : sinon les barres se superposent et les etiquettes
+  # s'empilent. On affiche la moyenne ; barre d'erreur = ecart-type entre
+  # campagnes, et une note est ajoutee sous le graphique.
+  note_campagnes <- NULL
+  facettes <- intersect(c("Indicateur", "Code"), names(df))
+  multiples <- df %>% dplyr::count(dplyr::across(dplyr::all_of(c(".x", ".fill", facettes)))) %>% dplyr::filter(n > 1)
+  if (nrow(multiples) > 0) {
+    df <- df %>%
+      dplyr::group_by(dplyr::across(dplyr::all_of(c(".x", ".fill", facettes)))) %>%
+      dplyr::summarise(dplyr::across(-c(.y, .sd), dplyr::first),
+                       .sd = if (dplyr::n() > 1) stats::sd(.y) else .sd[1],
+                       .n_campagnes = dplyr::n(),
+                       .y = mean(.y), .groups = "drop")
+    note_campagnes <- paste0("Plusieurs campagnes la meme annee (", paste(unique(multiples$.x), collapse = ", "),
+                             ") : moyenne des campagnes, barre d'erreur = ecart-type entre campagnes")
+  }
+
+  df <- df %>% dplyr::mutate(.haut = .y + ifelse(is.na(.sd), 0, .sd),
+                             .etiq = paste0(formater_nombre(.y, decimales), suffixe))
   dodge <- ggplot2::position_dodge(width = 0.8)
   y_max <- max(df$.haut, na.rm = TRUE)
+  # etiquettes plus petites quand il y a beaucoup de barres
+  n_barres <- nrow(df)
+  taille_etiquette <- if (n_barres > 24) 2.1 else if (n_barres > 12) 2.5 else 3
 
   p <- ggplot2::ggplot(df, ggplot2::aes(x = .x, y = .y, fill = .fill, group = .fill)) +
     ggplot2::geom_col(position = dodge, width = largeur_barre) +
@@ -207,8 +229,8 @@ graph_barres_sd <- function(df, x, y, sd = NULL, fill = NULL, palette = NULL, la
                            position = dodge, width = 0.2, linewidth = 0.45, na.rm = TRUE) +
     # etiquette de valeur au-dessus de la barre (ou de la barre d'erreur)
     ggplot2::geom_text(ggplot2::aes(y = .haut, label = .etiq), position = dodge,
-                       vjust = -0.5, size = 3, fontface = "bold") +
-    ggplot2::labs(title = titre, subtitle = sous_titre, y = y_lab) +
+                       vjust = -0.5, size = taille_etiquette, fontface = "bold") +
+    ggplot2::labs(title = titre, subtitle = sous_titre, y = y_lab, caption = note_campagnes) +
     theme_fiche()
 
   if (is.null(fill)) {
