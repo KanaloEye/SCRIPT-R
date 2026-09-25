@@ -2747,70 +2747,7 @@ if (file.exists(FICHIER_BOUCHON_OURSINS)) {
 ```
 
 
-#####2.1.2.4 Etat de santé général (OK)
-```{r}
-# NB : la colonne REPLICAT_Etat_de_sante (score continu par colonie,
-# protocole BELT classique) n'existe pas dans l'extraction LIT-BENTHOS -
-# elle ne sera donc jamais renseignee tant qu'un protocole BELT dedie
-# n'aura pas ete integre (section 1.2, actuellement vide). A la place,
-# ce graphique utilise les seules donnees de sante corallienne
-# reellement presentes dans l'extraction LIT : les points ou une
-# necrose/un blanchissement a ete releve (colonne
-# REPLICAT_Recouvrement_necrose_, cf. section 1.1, table
-# Proportion_blanchissement_complet). ATTENTION : ce sont des
-# observations OPPORTUNISTES et TRES PEU NOMBREUSES (quelques points
-# par campagne, pas un recensement systematique de colonies comme un
-# vrai protocole BELT) - a interpreter comme un signal d'alerte
-# ponctuel, pas comme un indicateur d'etat de sante representatif de
-# toute la station.
-save_directory <- "R_PLOT/BELT CORAUX/Etat de sante general"
-dir.create(save_directory, showWarnings = FALSE, recursive = TRUE)
-
-if (nrow(Necrose_classes) > 0) {
-
-  Necrose_classes_plot <- Necrose_classes %>%
-    mutate(Necrose_classe = factor(Necrose_classe,
-                                    levels = c("0%", "1 - 25%", "26 - 50%", "51 - 75%", "76 - 100%")))
-
-  for (station_value in unique(Necrose_classes_plot$Station)) {
-
-    df_station <- Necrose_classes_plot %>% filter(Station == station_value)
-    plot_name <- gsub(" ", "_", paste0("Etat_de_sante_", station_value))
-
-    plot_necrose <- ggplot(df_station, aes(x = factor(Annee), y = n_points, fill = Necrose_classe)) +
-      geom_col(position = position_dodge(width = 0.7, preserve = "single"), width = 0.6) +
-      geom_text(aes(label = n_points), position = position_dodge(width = 0.7, preserve = "single"),
-                vjust = -0.5, size = 3, fontface = "bold") +
-      scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.12))) +
-      scale_fill_manual(values = c("0%" = "seagreen3", "1 - 25%" = "khaki2", "26 - 50%" = "orange",
-                                    "51 - 75%" = "orangered3", "76 - 100%" = "darkred"), drop = FALSE) +
-      theme_classic() +
-      labs(title = str_wrap(paste("Necrose/blanchissement observes -", station_value), width = 45),
-           subtitle = "Observations opportunistes ponctuelles (protocole LIT) - pas un recensement systematique",
-           x = "", y = "Nombre de points observes") +
-      theme(
-        plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
-        plot.title.position = "plot",
-        plot.subtitle = element_text(size = 7, hjust = 0.5, face = "italic"),
-        axis.text = element_text(size = 10, face = "bold"),
-        legend.title = element_blank(),
-        panel.background  = element_rect(fill = "transparent", colour = NA),
-        plot.background   = element_rect(fill = "transparent", colour = NA),
-        legend.background = element_rect(fill = "transparent", colour = NA),
-        legend.key        = element_rect(fill = "transparent", colour = NA)
-      )
-
-    ggsave(file.path(save_directory, paste0(plot_name, ".png")),
-           plot_necrose, width = 16, height = 11, dpi = 300, units = "cm", bg = "transparent")
-  }
-} else {
-  cat("\nAucun point de necrose/blanchissement releve dans l'extraction - pas de graphique genere.\n")
-}
-```
-
-
-
-#####2.1.2.5 Evolution des coraux (BELT CORAIL) : abondance, diversite, etat de sante
+#####2.1.2.4 Evolution des coraux (BELT CORAIL) : abondance, diversite, etat de sante
 ```{r}
 # Une figure par station, 3 graphiques empiles :
 #   (1) abondance de colonies coralliennes / 10 m² (moyenne +/- ET des replicats)
@@ -3024,7 +2961,7 @@ if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
 ```
 
 
-#####2.1.2.6 Evolution des macroalgues (QUADRAT)
+#####2.1.2.5 Evolution des macroalgues (QUADRAT)
 ```{r}
 Palette_taxons_macroalgues <- c(
   "Dictyota"    = "seagreen4",
@@ -3248,8 +3185,14 @@ if (!is.null(BDD_evolution_poissons)) {
 # --- Structure trophique (historique + extraction 2022/2026) -----------
 if (!is.null(Trophique_historique)) {
 
-  Palette_trophique <- c("He" = "seagreen3", "Om" = "goldenrod2", "Pl" = "steelblue3",
-                          "C1" = "lightsalmon2", "C2" = "orangered3", "Pi" = "grey30")
+  # Memes couleurs que Palette_regime_trophique (section Palette de
+  # couleurs) : le rapport Bouchon code les regimes en abreviations
+  # (He, Om, Pl, C1, C2, Pi), on les fait simplement correspondre.
+  Palette_trophique <- setNames(
+    unname(Palette_regime_trophique[c("Herbivore", "Omnivore", "Planctonophage",
+                                      "Carnivore1", "Carnivore2", "Piscivore")]),
+    c("He", "Om", "Pl", "C1", "C2", "Pi")
+  )
 
   dir.create("R_PLOT/POISSONS/Structure_trophique_historique", showWarnings = FALSE, recursive = TRUE)
 
@@ -3441,9 +3384,9 @@ if (ncol(mat_cor_source) >= 2 && nrow(mat_cor_source) >= 3) {
     }
 
     Especes_regimes <- POISSONS %>% select(Taxon, Regime_trophique) %>% distinct()
-    Palette_regime_trophique <- c("Herbivore" = 'yellowgreen', "Planctonophage" = 'lightblue4',
-                                   "Omnivore" = 'dodgerblue', "Carnivore1" = 'orange',
-                                   "Carnivore2" = 'burlywood4', "Piscivore" = 'firebrick1')
+    # NB : Palette_regime_trophique n'est plus redefinie ici (l'ancienne
+    # redefinition locale ecrasait la palette globale avec d'autres
+    # couleurs pour tous les graphiques suivants)
     species_cols <- colnames(cor_mat_filtered)
     regimes_cols <- Especes_regimes$Regime_trophique[match(species_cols, Especes_regimes$Taxon)]
     couleurs_tl  <- Palette_regime_trophique[match(regimes_cols, names(Palette_regime_trophique))]
@@ -3852,7 +3795,6 @@ cat("Classeur POISSONS enregistre :", chemin_complet_poissons, "\n")
 
 ## Propositions d'amelioration (a discuter, non appliquees ici)
 
-- **BELT CORAUX (section 1.2)** : la fiche de saisie fournie (`SUIVI_GCRMN_BELT_CORAIL_2026.xlsx`) n'est utilisee que pour l'etat de sante des colonies (2.1.2.5). Elle contient aussi le comptage par espece (colonne `Taxon`) qui permettrait un calcul de densite et de richesse specifique par le protocole BELT, comparable a celui deja fait pour LIT-BENTHOS - a envisager si ce protocole devient recurrent d'une annee sur l'autre.
 - **Densite_OURSINS_taxons** : cette table (utilisee dans les graphiques anterieurs a la fusion 2.1.2.3) ne calcule une densite correcte que pour *Diadema antillarum* - les autres especes y restent a 0 quelle que soit leur abondance reelle. Elle n'est plus utilisee dans l'export ni dans les graphiques actuels, mais existe toujours dans l'environnement ; a corriger ou supprimer si elle doit resservir ailleurs.
 - **Coraux_descripteurs et Autres_indicateurs** (feuilles du rapport Bouchon 2024) restent inexploitees : la premiere donne une richesse/abondance corail comparable a BELT CORAUX, la seconde des tendances gorgones/eponges - utile en historique si ces compartiments doivent etre suivis plus finement.
 - **Classeur POISSONS** : `Description_POISSONS_Station` et `Trophique_historique` melangent extraction et historique dans une seule feuille (colonne `Source`) - a scinder en 2 feuilles distinctes si un usage downstream (ex. tableau croise dynamique) suppose des schemas identiques sans colonne `Source`.
