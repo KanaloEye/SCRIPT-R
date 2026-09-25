@@ -117,8 +117,16 @@ texte_tendance <- function(t, unite = "", prefixe = "") {
 # comptages par quadrat/replicat souvent non normaux). Renvoie une ligne
 # par comparaison avec p-value et etoiles (*, **, ***, ns).
 comparer_annees <- function(df, valeur, groupe = "Station", annee = "Annee") {
+  # Table vide mais avec toutes ses colonnes : renvoyee quand aucune
+  # station n'a au moins 2 annees de suivi (sinon les filter(Station == ...)
+  # plus loin plantent avec "objet 'Station' introuvable")
+  vide <- tibble::tibble(!!groupe := character(0), Annee_ref = numeric(0), Annee = numeric(0),
+                         Moyenne_ref = numeric(0), Moyenne = numeric(0),
+                         n_ref = integer(0), n = integer(0),
+                         p_wilcoxon = numeric(0), Signif = character(0))
+  if (is.null(df) || nrow(df) == 0 || !valeur %in% names(df)) return(vide)
   df <- df %>% dplyr::filter(!is.na(.data[[valeur]]))
-  purrr::map_dfr(unique(df[[groupe]]), function(g) {
+  res <- purrr::map_dfr(unique(df[[groupe]]), function(g) {
     d <- df[df[[groupe]] == g, ]
     annees <- sort(unique(as.numeric(as.character(d[[annee]]))))
     if (length(annees) < 2) return(NULL)
@@ -134,4 +142,6 @@ comparer_annees <- function(df, valeur, groupe = "Station", annee = "Annee") {
                      p_wilcoxon = p, Signif = etoiles_p(p))
     })
   })
+  if (nrow(res) == 0) return(vide)
+  res
 }
