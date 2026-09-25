@@ -85,6 +85,18 @@ CATEGORIES_ALGUES_RATIO <- c("Macroalgues molles", "Turf algal", "Macroalgues ca
 # protocoles - a harmoniser avec le rapport Bouchon pour comparer.
 TAILLE_CLASSE_PLUS_40_CM <- 40
 
+# Poissons : correspondance nom ReefDB -> nom du referentiel
+# Liste_147_Poissons.xlsx (fautes d'orthographe du referentiel ou
+# synonymes). Mieux : corriger directement le referentiel, puis retirer
+# la ligne correspondante ici.
+SYNONYMES_TAXONS_POISSONS <- c(
+  "Haemulon plumierii"       = "Haemulon plumieri",
+  "Diodon holocanthus"       = "Diodon holacanthus",
+  "Holocentrus adscensionis" = "Holocentrus adscencionis",
+  "Rhinesomus triqueter"     = "Lactophrys triqueter",
+  "Prognathodes aculeatus"   = "Chaetodon aculeatus"
+)
+
 # --- 5. Mise en forme des graphiques -------------------------------------
 POLICE_GRAPHS      <- "sans"   # ex. "Montserrat" si installee sur l'ordinateur
 TAILLE_POLICE_BASE <- 10

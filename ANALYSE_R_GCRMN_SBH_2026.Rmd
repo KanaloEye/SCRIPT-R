@@ -615,8 +615,9 @@ Oursins_quadrat <- OURSINS %>%
 
 Oursins_modernes <- Oursins_quadrat %>%
   group_by(Station, Annee) %>%
-  summarise(Densite_m2 = round(mean(Densite_m2), 3),
-            Oursins_sd = round(sd(Densite_m2), 3),
+  # NB : ecart-type calcule AVANT d'ecraser Densite_m2 par sa moyenne
+  summarise(Oursins_sd = round(sd(Densite_m2), 3),
+            Densite_m2 = round(mean(Densite_m2), 3),
             n_quadrats = n(), .groups = "drop")
 
 # Densite par espece (pour la composition), zeros inclus
@@ -754,6 +755,12 @@ POISSONS <- POISSONS %>%
 				 Longueur_transect_poisson_m = `REPLICAT_Longueur_transect_metre_ruban.Metre`,
 				 Profondeur = `OBSERVATION_Profondeur.Metre`)
 
+# Suppression des lignes d'en-tete de station (sans numero de transect ni
+# poisson) : elles etaient comptees comme un 3e transect de 300 m² en 2022
+# (surface 900 m² au lieu de 600 -> densite et biomasse sous-estimees d'un
+# tiers) et creaient un transect "vide" dans les moyennes par replicat.
+POISSONS <- POISSONS %>% filter(!is.na(Replicat), Replicat != "")
+
 # Surface reellement echantillonnee par Station x Annee x Replicat,
 # extraite ici (avant les group_by/complete plus bas qui pourraient la
 # perdre) pour un usage fiable dans les indicateurs par surface (densite,
@@ -803,21 +810,57 @@ Liste_Poissons_biometrie <- read.xlsx(
 # Taxon duplique multiplie les lignes de POISSONS correspondantes,
 # doublant artificiellement leur abondance. On ne garde qu'une ligne par
 # Taxon, en priorisant celle qui a un Niveau_trophique renseigne.
+# Noms nettoyes des deux cotes (espaces en trop, espaces insecables) :
+# l'export ReefDB contient par ex. " Thalassoma bifasciatum" (espace en
+# tete), qui ne trouvait pas sa biometrie dans le referentiel.
+nettoyer_taxon <- function(x) str_squish(gsub("\u00a0", " ", x))
+Liste_Poissons_biometrie <- Liste_Poissons_biometrie %>% mutate(Taxon = nettoyer_taxon(Taxon))
+
+# Doublons du referentiel : signaler ceux dont le regime trophique differe
+# (le choix de la ligne gardee change alors les resultats)
+doublons_conflit <- Liste_Poissons_biometrie %>%
+  group_by(Taxon) %>% filter(n() > 1, n_distinct(Regime_trophique) > 1) %>% ungroup()
+if (nrow(doublons_conflit) > 0) {
+  warning("Liste_147_Poissons.xlsx : taxon(s) en double avec des regimes trophiques DIFFERENTS - ",
+          "la premiere ligne est gardee, corriger le referentiel : ",
+          paste(unique(paste0(doublons_conflit$Taxon, " (", doublons_conflit$Regime_trophique, ")")), collapse = ", "),
+          call. = FALSE)
+}
 n_avant_dedoublonnage <- nrow(Liste_Poissons_biometrie)
 Liste_Poissons_biometrie <- Liste_Poissons_biometrie %>%
   arrange(Taxon, is.na(Niveau_trophique)) %>%
   distinct(Taxon, .keep_all = TRUE)
 if (nrow(Liste_Poissons_biometrie) != n_avant_dedoublonnage) {
   warning(n_avant_dedoublonnage - nrow(Liste_Poissons_biometrie),
-          " doublon(s) de Taxon retire(s) de Liste_147_Poissons.xlsx.")
+          " doublon(s) de Taxon retire(s) de Liste_147_Poissons.xlsx.", call. = FALSE)
 }
 
 Liste_Poissons_biometrie$Niveau_trophique <- as.numeric(Liste_Poissons_biometrie$Niveau_trophique)
 
+# Nom utilise pour la jointure : synonymes / orthographes du referentiel
+# (cf. SYNONYMES_TAXONS_POISSONS dans R/00_parametres.R). Le nom ReefDB
+# (Taxon) reste celui affiche dans les resultats.
+POISSONS <- POISSONS %>%
+  mutate(Taxon = nettoyer_taxon(Taxon),
+         Taxon_referentiel = ifelse(Taxon %in% names(SYNONYMES_TAXONS_POISSONS),
+                                    unname(SYNONYMES_TAXONS_POISSONS[Taxon]), Taxon))
 
 #joindre Liste_Poissons_biometrie à POISSONS
 POISSONS<- POISSONS %>%
-  left_join(Liste_Poissons_biometrie, by = "Taxon")
+  left_join(Liste_Poissons_biometrie %>% rename(Taxon_referentiel = Taxon), by = "Taxon_referentiel") %>%
+  select(-Taxon_referentiel)
+
+# Controle des coefficients a/b des especes observees (ordres de grandeur
+# habituels : a ~ 0,005-0,1 ; b ~ 2,5-3,5). Une valeur aberrante fausse
+# directement la biomasse (ex. a = 3,03 = ~100 fois trop grand).
+biometrie_suspecte <- POISSONS %>%
+  filter(!is.na(a), a > 0.3 | b < 2.4 | b > 3.6) %>%
+  distinct(Taxon, a, b)
+if (nrow(biometrie_suspecte) > 0) {
+  warning("Coefficients a/b inhabituels pour des especes observees - verifier dans Liste_147_Poissons.xlsx : ",
+          paste0(biometrie_suspecte$Taxon, " (a=", biometrie_suspecte$a, ", b=", biometrie_suspecte$b, ")", collapse = " ; "),
+          call. = FALSE)
+}
 
 #ajout colonne Taille_moyenne_cm  sur base de REPLICAT_Classe_de_taille_poissons_Protocole_BELT_recifs_._suivi_exhaustif
 # Créez une fonction pour la logique de transformation
@@ -866,16 +909,35 @@ Biomasse_gr = Abondance * (a * Taille_moyenne_cm^b),
   Biomasse_gr_m2 = densite_m2 * (a * Taille_moyenne_cm^b),
   Biomasse_kg = Abondance * (a * Taille_moyenne_cm^b)/1000)
 
+# Table au niveau de la CLASSE DE TAILLE (une ligne = un taxon x une classe
+# x un transect), conservee AVANT le regroupement par taxon ci-dessous :
+# c'est elle qui sert a la structure de taille, aux juveniles et a la
+# taille moyenne. Apres regroupement, une espece observee dans plusieurs
+# classes n'a plus qu'une "taille moyenne", qui ne permet plus de savoir
+# combien d'individus etaient dans chaque classe.
+POISSONS_CLASSES <- POISSONS %>%
+  filter(!is.na(Abondance), Abondance > 0) %>%
+  select(Programme, Date, Station, Annee, Replicat, Taxon, Regime_trophique, Taille_classe,
+         Taille_moyenne_cm, Abondance, Biomasse_kg, Niveau_trophique) %>%
+  mutate(Annee = as.numeric(as.character(Annee)))
+
 #Tous les descripteurs ont été calculé avant on peut désormais regrouper par Replicat
+# NB : les biomasses sont SOMMEES ligne a ligne (chaque classe de taille
+# avec sa propre taille) - c'est la seule valeur correcte. La taille
+# moyenne est ponderee par l'abondance (auparavant : moyenne simple des
+# classes, ex. 1200 Chromis < 5 cm + quelques 10-20 cm = "13,75 cm").
+somme_ou_na <- function(x) if (all(is.na(x))) NA_real_ else sum(x, na.rm = TRUE)
 POISSONS <- POISSONS %>%
   group_by(Programme, Date, Station, Annee, Replicat, Regime_trophique, Famille, Taxon,a,b,Niveau_trophique, Surface_transect_poisson_m2) %>%
   summarise(
+    # taille calculee EN PREMIER (avant que Abondance soit remplacee par sa somme)
+    Taille_moyenne_cm = if (all(is.na(Taille_moyenne_cm))) NA_real_
+                        else weighted.mean(Taille_moyenne_cm, w = Abondance, na.rm = TRUE),
     Abondance = sum(Abondance),
     densite_m2 = sum(densite_m2),
-    Biomasse_gr = sum(Biomasse_gr, na.rm = TRUE),
-    Biomasse_gr_m2 = sum(Biomasse_gr_m2, na.rm = TRUE),
-    Biomasse_kg = sum(Biomasse_kg, na.rm = TRUE),
-    Taille_moyenne_cm = mean(Taille_moyenne_cm, na.rm = TRUE),  # Calculer la moyenne si la colonne existe
+    Biomasse_gr = somme_ou_na(Biomasse_gr),
+    Biomasse_gr_m2 = somme_ou_na(Biomasse_gr_m2),
+    Biomasse_kg = somme_ou_na(Biomasse_kg),
     .groups = "drop"
   )
 
@@ -1035,8 +1097,14 @@ POISSONS$Niveau_trophique<- as.numeric(POISSONS$Niveau_trophique)
 # lignes a abondance nulle). On force donc Biomasse_kg a 0 quand
 # Abondance = 0, quelle que soit la disponibilite de a/b pour ce
 # taxon/replicat precis.
+# NB : la biomasse n'est PLUS recalculee ici a partir de la taille moyenne
+# (Abondance totale x a x Taille_moyenne^b) : ce recalcul ecrasait la
+# biomasse correcte (sommee classe par classe) et la surestimait fortement
+# pour les especes observees dans plusieurs classes (ex. Chromis cyanea,
+# Baleine 2026 : 89 kg calcules au lieu de quelques kg). On se contente
+# de mettre a 0 les lignes de remplissage (Abondance = 0).
 POISSONS <- POISSONS %>%
-  mutate(Biomasse_kg = ifelse(Abondance == 0, 0, (Abondance * (a * Taille_moyenne_cm^b))/1000))
+  mutate(Biomasse_kg = ifelse(Abondance == 0, 0, Biomasse_kg))
 
 # NB : on ne retire PLUS les lignes ici juste parce que Biomasse_kg est NA.
 # Biomasse_kg est NA des qu'un Taxon n'a pas de coefficients a/b dans
@@ -1186,23 +1254,36 @@ Description_POISSONS_Station <- POISSONS %>%
   summarise(
     Abondance_totale   = sum(Abondance, na.rm = TRUE),
     Biomasse_totale_kg = sum(Biomasse_kg, na.rm = TRUE),
-    Taille_moyenne      = weighted.mean(Taille_moyenne_cm, w = Abondance, na.rm = TRUE),
-    Taille_sd           = weighted.sd(Taille_moyenne_cm, Abondance),
     MTL                = sum(Biomasse_kg * Niveau_trophique, na.rm = TRUE) / sum(Biomasse_kg, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   mutate(Annee = as.numeric(as.character(Annee))) %>%
+  # taille moyenne et ecart-type ponderes, calcules sur les classes de taille
+  left_join(POISSONS_CLASSES %>%
+              group_by(Programme, Station, Annee) %>%
+              summarise(Taille_moyenne = weighted.mean(Taille_moyenne_cm, w = Abondance, na.rm = TRUE),
+                        Taille_sd      = weighted.sd(Taille_moyenne_cm, Abondance), .groups = "drop"),
+            by = c("Programme", "Station", "Annee")) %>%
   left_join(INDICES_ECO_pool, by = c("Programme", "Station", "Annee"))
 
 cat("\nApercu - Description_POISSONS_Station :\n")
 print(Description_POISSONS_Station)
 
 # --- Structure de taille (% d'abondance par classe) ----------------------
-Taille_POISSONS_moderne <- POISSONS %>%
-  filter(Abondance > 0, !is.na(Taille_classe_reconstruite)) %>%
-  group_by(Programme, Station, Annee, Taille_classe_reconstruite) %>%
+# Calculee sur les classes de taille observees (POISSONS_CLASSES), et non
+# plus sur une classe "reconstruite" depuis la taille moyenne par espece
+Taille_POISSONS_moderne <- POISSONS_CLASSES %>%
+  mutate(Taille_classe = case_when(
+    Taille_moyenne_cm < 5  ~ "< 5 cm",
+    Taille_moyenne_cm < 10 ~ "5 - 10 cm",
+    Taille_moyenne_cm < 20 ~ "10 - 20 cm",
+    Taille_moyenne_cm < 30 ~ "20 - 30 cm",
+    Taille_moyenne_cm < 40 ~ "30 - 40 cm",
+    !is.na(Taille_moyenne_cm) ~ "> 40 cm",
+    TRUE ~ NA_character_)) %>%
+  filter(!is.na(Taille_classe)) %>%
+  group_by(Programme, Station, Annee, Taille_classe) %>%
   summarise(Abondance_totale = sum(Abondance, na.rm = TRUE), .groups = "drop") %>%
-  rename(Taille_classe = Taille_classe_reconstruite) %>%
   group_by(Programme, Station, Annee) %>%
   mutate(Abondance_pourcent = round(100 * Abondance_totale / sum(Abondance_totale), 1)) %>%
   ungroup() %>%
@@ -1245,10 +1326,16 @@ Poissons_indicateurs_modernes <- POISSONS %>%
     Effectifs_totaux  = sum(Abondance, na.rm = TRUE),
     Biomasse_totale_kg = sum(Biomasse_kg, na.rm = TRUE),
     Richesse_specifique = n_distinct(Taxon[Abondance > 0]),
-    Effectifs_juveniles = sum(Abondance[!is.na(Taille_moyenne_cm) & Taille_moyenne_cm < 5], na.rm = TRUE),
-    Nb_especes_juveniles = n_distinct(Taxon[!is.na(Taille_moyenne_cm) & Taille_moyenne_cm < 5 & Abondance > 0]),
     .groups = "drop"
   ) %>%
+  mutate(Annee = as.numeric(Annee)) %>%
+  # juveniles = individus de la classe "< 5 cm", comptes classe par classe
+  left_join(POISSONS_CLASSES %>%
+              group_by(Programme, Station, Annee) %>%
+              summarise(Effectifs_juveniles  = sum(Abondance[!is.na(Taille_moyenne_cm) & Taille_moyenne_cm < 5]),
+                        Nb_especes_juveniles = n_distinct(Taxon[!is.na(Taille_moyenne_cm) & Taille_moyenne_cm < 5]),
+                        .groups = "drop"),
+            by = c("Programme", "Station", "Annee")) %>%
   mutate(Annee = as.numeric(Annee)) %>%
   left_join(Surface_totale_poissons, by = c("Station", "Annee")) %>%
   mutate(
@@ -1510,6 +1597,20 @@ if (file.exists(FICHIER_HISTORIQUE)) {
             "' (feuille DATA_2022) contiennent une valeur non numerique dans une colonne ",
             "attendue numerique (corail/macroalgues/recrues) - verifier les lignes : ",
             paste(lignes_non_convertibles$.ligne, collapse = ", "))
+  }
+
+  # Controle : valeur identique pour 2 stations la meme annee = probable
+  # copier-coller dans le fichier ATE (ex. recrues 2022 = 3,03 a Baleine ET Coco)
+  copies_stations <- Historique %>%
+    pivot_longer(c(Recouvrement_corallien_pct, Recouvrement_macroalgues_pct, Recrues_m2),
+                 names_to = "Indicateur", values_to = "Valeur") %>%
+    filter(!is.na(Valeur)) %>%
+    group_by(Annee, Indicateur, Valeur) %>%
+    filter(n_distinct(Station) > 1) %>% ungroup()
+  if (nrow(copies_stations) > 0) {
+    warning("Fichier ATE : valeur(s) identique(s) pour plusieurs stations la meme annee (copier-coller ?) : ",
+            paste(unique(paste0(copies_stations$Indicateur, " ", copies_stations$Annee, " = ", copies_stations$Valeur)),
+                  collapse = " ; "), call. = FALSE)
   }
 
   BDD_evolution_benthos <- bind_rows(Historique, BDD_evolution_benthos)
