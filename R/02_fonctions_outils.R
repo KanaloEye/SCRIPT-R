@@ -25,6 +25,30 @@ lire_extraction_reefdb <- function(cle) {
   df <- read.csv2(FICHIERS[[cle]], header = TRUE, sep = ";", quote = "\"", dec = ",",
                   fill = TRUE, comment.char = "", fileEncoding = "UTF-8")
   if (nrow(df) == 0) stop("Le fichier ", FICHIERS[[cle]], " ne contient aucune ligne.", call. = FALSE)
+  fusionner_colonnes_dupliquees(df, cle)
+}
+
+# ReefDB exporte parfois un meme parametre dans DEUX colonnes de meme nom
+# (ex. RECRUES : "Nombre de recrues..." en 2022 dans la 1re colonne, en
+# 2026 dans la 2e). read.csv2() les renomme "X" et "X.1" : seule "X" etait
+# lue, et 2026 disparaissait. Les colonnes "X.1", "X.2"... sont fusionnees
+# dans "X" (valeur prise dans la premiere colonne renseignee).
+fusionner_colonnes_dupliquees <- function(df, cle = "") {
+  noms <- names(df)
+  doublons <- noms[grepl("\\.[0-9]+$", noms) & sub("\\.[0-9]+$", "", noms) %in% noms]
+  for (d in doublons) {
+    base <- sub("\\.[0-9]+$", "", d)
+    conflits <- sum(!is.na(df[[base]]) & !is.na(df[[d]]) & df[[base]] != "" & df[[d]] != "" &
+                      as.character(df[[base]]) != as.character(df[[d]]))
+    if (conflits > 0) {
+      warning(cle, " : colonnes '", base, "' et '", d, "' renseignees differemment sur ", conflits,
+              " ligne(s) - la premiere est gardee.", call. = FALSE)
+    }
+    vide <- is.na(df[[base]]) | as.character(df[[base]]) == ""
+    df[[base]][vide] <- df[[d]][vide]
+    df[[d]] <- NULL
+    cat(cle, ": colonne en double fusionnee -> ", base, "\n", sep = "")
+  }
   df
 }
 

@@ -124,6 +124,10 @@ LIT_BENTHOS <- LIT_BENTHOS %>%
       Categorie_brute == "Gorgones"                                         ~ "Gorgones",
       Categorie_brute == "Corail Dur - Hard Coral"                          ~ "Coraux durs",
       Categorie_brute == "Corail vivant"                                    ~ "Coraux durs",
+      # Hydrocoralliaires (Millepora, "corail de feu") FUSIONNES avec les
+      # coraux durs, quel que soit l'intitule ReefDB du groupe
+      str_detect(Categorie_brute, regex("hydrocorall|corail de feu|fire coral", ignore_case = TRUE)) ~ "Coraux durs",
+      str_detect(coalesce(Taxon, ""), regex("^Millepora", ignore_case = TRUE))                     ~ "Coraux durs",
       Categorie_brute == "Corail Récemment Mort - Recently Killed  Coral"   ~ "Corail mort récent",
       Categorie_brute == "Substrat dur nu / Roche nue"                      ~ "Roche",
       Categorie_brute == "Sable"                                            ~ "Sable",
@@ -2005,7 +2009,9 @@ for (categorie in c("Coraux durs", "Macroalgues molles")) {
   p <- graph_barres_sd(df_cat, "Annee", "Pourcentage_moyen", sd = "Pourcentage_ET",
                        fill = "Station", palette = Palette_stations,
                        titre = paste("Recouvrement en", tolower(categorie), "(LIT)"),
-                       sous_titre = "Moyenne +/- ecart-type des transects",
+                       sous_titre = if (categorie == "Coraux durs")
+                         "Moyenne +/- ecart-type des transects ; scleractiniaires + hydrocoralliaires (Millepora)"
+                         else "Moyenne +/- ecart-type des transects",
                        y_lab = "Recouvrement (%)", suffixe = "%")
   sauver_graph(p, "LIT BENTHOS/1.3_Comparaison_stations", paste0("Comparaison_", categorie), "standard",
                fiche = fiche_synthese("Benthos"), ordre = if (categorie == "Coraux durs") 1 else 2)
@@ -2063,7 +2069,7 @@ for (station_value in unique(BDD_long$Station)) {
                    palette = Palette_indicateurs, unite = "%",
                    seuils = unlist(unname(SEUILS_REFERENCE[c("Corail dur", "Macroalgues")])),
                    titre = str_wrap(paste("Evolution 2002-2026 du recouvrement -", station_value), 45),
-                   sous_titre = "Rond = extraction ReefDB (30 m) ; triangle = historique ATE (60 m) ; carre = rapport Bouchon 2024",
+                   sous_titre = "Rond = extraction ReefDB (30 m) ; triangle = historique ATE (60 m) ; carre = rapport Bouchon 2024\nCorail dur = scleractiniaires + hydrocoralliaires (Millepora)",
                    y_lab = "Recouvrement (%)")
   ajouter_tendance(p, station = station_value)
   sauver_graph(p, "LIT BENTHOS/3.1_Serie_historique", paste0("Evolution_2002_2026_", station_value), "pleine",
