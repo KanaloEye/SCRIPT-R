@@ -26,10 +26,19 @@ FICHIERS_OBLIGATOIRES <- c("LIT_BENTHOS", "RECRUES", "OURSINS", "MACROALGUES", "
 FEUILLE_BELT_CORAIL <- "FICHE DE SAISIE BELT CORAIL"
 
 # --- 2. Dossiers de sortie ----------------------------------------------
-DOSSIER_GRAPHS      <- "R_PLOT"             # tous les graphiques (avec titres)
-DOSSIER_FICHES      <- "R_PLOT/FICHES"      # copies rangees par fiche Canva
+# Chaque graphique est enregistre UNE SEULE FOIS dans R_PLOT :
+#   R_PLOT/<Station>/Benthos/  et  R_PLOT/<Station>/Poissons/   fiches station
+#   R_PLOT/Synthese_Benthos/   et  R_PLOT/Synthese_Poissons/    fiches de synthese
+#   R_PLOT/Annexes/...                                          graphiques hors fiches
+#                                                               (controle qualite, analyses...)
+DOSSIER_GRAPHS      <- "R_PLOT"
 DOSSIER_BDD         <- "R_BDD"              # classeurs Excel
 DOSSIER_BANCARISATION <- "Historique de bancarisation"
+
+# Au lancement, l'ancien dossier R_PLOT est renomme en R_PLOT_ANCIEN (le
+# precedent R_PLOT_ANCIEN est remplace) : plus de graphiques obsoletes
+# laisses par d'anciennes versions du script. FALSE = on ecrit par-dessus.
+ARCHIVER_ANCIEN_R_PLOT <- TRUE
 
 # --- 3. Stations ----------------------------------------------------------
 # nom       = nom de reference utilise partout dans le script
@@ -117,10 +126,65 @@ FORMATS_EXPORT <- list(
 # le segment fait au moins cette fraction de la hauteur de l'axe.
 FRACTION_MIN_ETIQUETTE <- 0.05
 
-# --- 6. Export "fiches" Canva ---------------------------------------------
-EXPORT_FICHES           <- TRUE
-FICHES_SANS_TITRE       <- TRUE    # le titre est ecrit dans Canva
+# --- 6. Fiches Canva ------------------------------------------------------
+FICHES_SANS_TITRE       <- TRUE    # graphiques des fiches sans titre (ecrit dans Canva)
 FICHES_SANS_SOUS_TITRE  <- FALSE   # les sous-titres portent souvent une info utile
+
+# ORDRE des graphiques dans chaque fiche : le numero devient le prefixe du
+# fichier (01_, 02_...). Pour reordonner une fiche, changer les numeros
+# ici ; pour retirer un graphique d'une fiche, supprimer sa ligne (il est
+# alors range dans R_PLOT/Annexes).
+ORDRE_FICHES <- list(
+  Benthos = c(                      # fiche station - partie benthos
+    Recouvrement_LIT_annee          = 1,
+    Composition_detaillee_annee     = 2,
+    Diversite_corallienne_annee     = 3,
+    Etat_sante_coraux_annee         = 4,
+    Recouvrement_LIT_evolution      = 5,
+    Composition_detaillee_evolution = 6,
+    Serie_2002_2026_corail_macroalgues = 7,
+    Abondance_coraux_BELT           = 8,
+    Diversite_coraux_BELT           = 9,
+    Etat_sante_coraux_BELT          = 10,
+    Recrues                         = 11,
+    Oursins                         = 12,
+    Macroalgues_recouvrement        = 13,
+    Macroalgues_composition         = 14
+  ),
+  Poissons = c(                     # fiche station - partie poissons
+    Regime_trophique_abondance_annee = 1,
+    Regime_trophique_biomasse_annee  = 2,
+    Densite_poissons                 = 3,
+    Biomasse_poissons                = 4,
+    Richesse_poissons                = 5,
+    Structure_trophique_effectifs    = 6,
+    Structure_trophique_biomasse     = 7,
+    Structure_trophique_richesse     = 8,
+    Structure_taille                 = 9
+  ),
+  Synthese_Benthos = c(             # fiche de synthese benthos (stations comparees)
+    Corail_LIT                      = 1,
+    Macroalgues_LIT                 = 2,
+    Indicateur_algues_corail        = 3,
+    Composition_detaillee_annee     = 4,
+    Diversite_corallienne_annee     = 5,
+    Etat_sante_coraux_annee         = 6,
+    Abondance_coraux_BELT           = 7,
+    Colonies_atteintes_BELT         = 8,
+    Recrues                         = 9,
+    Oursins                         = 10,
+    Macroalgues_quadrats            = 11
+  ),
+  Synthese_Poissons = c(            # fiche de synthese poissons
+    Richesse_poissons               = 1,
+    Densite_poissons                = 2,
+    Biomasse_poissons               = 3,
+    Part_juveniles                  = 4,
+    Especes_avec_juveniles          = 5,
+    Descripteurs_MTL_Shannon_Pielou = 6,
+    NMDS_communautes                = 7
+  )
+)
 
 # --- 7. Statistiques ------------------------------------------------------
 SEUIL_P <- 0.05

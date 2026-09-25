@@ -43,6 +43,7 @@ source("R/03_fonctions_graphiques.R", encoding = "UTF-8")
 
 # Verification des fichiers obligatoires AVANT de lancer les calculs
 invisible(lapply(FICHIERS_OBLIGATOIRES, verifier_fichier))
+preparer_dossier_graphs()   # archive l'ancien R_PLOT (cf. ARCHIVER_ANCIEN_R_PLOT)
 dir.create(DOSSIER_BANCARISATION, showWarnings = FALSE)
 ```
 
@@ -1897,7 +1898,7 @@ Taxons_algaux <- Recouvrement_detail_historique %>%
 
 
 # 2 ANALYSE DE DONNEES
-Les palettes de couleurs sont definies dans `R/01_palettes.R` et les fonctions graphiques dans `R/03_fonctions_graphiques.R`. Chaque graphique est enregistre dans `R_PLOT/...` (avec titre) et, s'il sert a une fiche, copie sans titre dans `R_PLOT/FICHES/<station>/<Benthos|Poissons>/` ou `R_PLOT/FICHES/Synthese_<Benthos|Poissons>/`, numerote dans l'ordre de la fiche.
+Les palettes de couleurs sont definies dans `R/01_palettes.R` et les fonctions graphiques dans `R/03_fonctions_graphiques.R`. Chaque graphique est enregistre UNE SEULE FOIS : dans `R_PLOT/<Station>/<Benthos|Poissons>/` ou `R_PLOT/Synthese_<Benthos|Poissons>/` s'il sert a une fiche (numerote selon `ORDRE_FICHES`, R/00_parametres.R), sinon dans `R_PLOT/Annexes/`.
 
 ```{r}
 # Tables de tendances collectees au fil des graphiques (exportees en fin de script)
@@ -1931,8 +1932,8 @@ for (station_value in unique(Recouvrement_benthos_annee_encours$Station)) {
                        "Pourcentage_moyen", "LIT", Palette_nature_recouvrement,
                        titre = str_wrap(paste("Recouvrement benthique -", station_value), 45),
                        sous_titre = paste("Annee", annee_courante_benthos), legende_nrow = 3)
-  sauver_graph(p, "LIT BENTHOS/Annee_en_cours", paste0("Recouvrement_benthos_", station_value), "carre",
-               fiche = fiche_station(station_value, "Benthos"), ordre = 1)
+  sauver_graph(p, "Benthos/Annee_en_cours", paste0("Recouvrement_benthos_", station_value), "carre",
+               fiche = fiche_station(station_value, "Benthos"), cle = "Recouvrement_LIT_annee")
 }
 
 ## (b) Composition corail dur par taxon (LIT), un camembert par station
@@ -1944,8 +1945,57 @@ for (station_value in unique(Taxons_coralliens_annee_encours$Station)) {
                        "Pourcentage_moyen", "Taxon", Palette_taxons_coralliens,
                        titre = str_wrap(paste("Composition corallienne par taxon -", station_value), 45),
                        sous_titre = paste("Annee", annee_courante_benthos, "- recouvrement LIT"), legende_nrow = 4)
-  sauver_graph(p, "LIT BENTHOS/Annee_en_cours", paste0("Taxons_coralliens_", station_value), "carre")
+  sauver_graph(p, "Benthos/Annee_en_cours", paste0("Taxons_coralliens_", station_value), "carre")
 }
+
+## (b bis) Composition detaillee du recouvrement (LIT) de l'annee en cours
+# Barres horizontales triees (categories fines : corail, turf, macroalgues
+# molles, eponges, sable...) : moyenne des transects +/- ecart-type
+Composition_annee_encours <- Recouvrement_detail_annee %>%
+  filter(Annee == annee_courante_benthos, Pourcentage_moyen > 0)
+Palette_compo <- completer_palette(Palette_categorie_detail, Composition_annee_encours$Categorie_detail)
+
+for (station_value in unique(Composition_annee_encours$Station)) {
+  df <- Composition_annee_encours %>% filter(Station == station_value) %>%
+    mutate(Categorie_detail = reorder(Categorie_detail, Pourcentage_moyen),
+           etiquette = paste0(formater_nombre(Pourcentage_moyen, 1), "%",
+                              ifelse(is.na(Pourcentage_ET), "", paste0(" \u00b1 ", formater_nombre(Pourcentage_ET, 1)))))
+  p <- ggplot(df, aes(x = Pourcentage_moyen, y = Categorie_detail, fill = as.character(Categorie_detail))) +
+    geom_col(width = 0.7, show.legend = FALSE, colour = "grey40", linewidth = 0.2) +
+    geom_errorbarh(aes(xmin = pmax(Pourcentage_moyen - Pourcentage_ET, 0), xmax = Pourcentage_moyen + Pourcentage_ET),
+                   height = 0.25, linewidth = 0.4, na.rm = TRUE) +
+    geom_text(aes(x = Pourcentage_moyen + ifelse(is.na(Pourcentage_ET), 0, Pourcentage_ET), label = etiquette),
+              hjust = -0.1, size = 3, fontface = "bold") +
+    scale_fill_manual(values = Palette_compo) +
+    scale_x_continuous(expand = expansion(mult = c(0, 0.3))) +
+    labs(title = str_wrap(paste("Composition detaillee du recouvrement -", station_value), 50),
+         subtitle = paste0("Annee ", annee_courante_benthos, " - LIT, moyenne +/- ecart-type des transects"),
+         x = "Recouvrement (%)", y = NULL) +
+    theme_fiche() + theme(axis.title.x = element_text(face = "bold"))
+  sauver_graph(p, "Benthos/Annee_en_cours", paste0("Composition_detaillee_", annee_courante_benthos, "_", station_value),
+               "standard", hauteur = max(9, 0.7 * nrow(df) + 4),
+               fiche = fiche_station(station_value, "Benthos"), cle = "Composition_detaillee_annee")
+}
+
+# Comparaison des stations
+df_comp <- Composition_annee_encours %>%
+  complete(Station, Categorie_detail, fill = list(Pourcentage_moyen = 0)) %>%
+  mutate(Categorie_detail = reorder(Categorie_detail, Pourcentage_moyen, FUN = sum),
+         Station = factor(Station, levels = rev(names(Palette_stations))),
+         etiquette = ifelse(Pourcentage_moyen >= 1, formater_nombre(Pourcentage_moyen, 1), ""))
+dodge_compo <- position_dodge(width = 0.8)
+p <- ggplot(df_comp, aes(x = Categorie_detail, y = Pourcentage_moyen, fill = Station)) +
+  geom_col(position = dodge_compo, width = 0.75) +
+  geom_text(aes(label = etiquette), position = dodge_compo, hjust = -0.2, size = 2.7, fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = Palette_stations, breaks = names(Palette_stations)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+  labs(title = paste("Composition detaillee du recouvrement", annee_courante_benthos, "- comparaison des stations"),
+       subtitle = "LIT, recouvrement moyen des transects (%)", y = "Recouvrement (%)", x = NULL) +
+  theme_fiche() + theme(axis.title.x = element_text(face = "bold"), axis.title.y = element_blank())
+sauver_graph(p, "Benthos/Annee_en_cours", paste0("Composition_detaillee_", annee_courante_benthos, "_stations"),
+             "pleine", hauteur = max(10, 0.55 * n_distinct(df_comp$Categorie_detail) + 5),
+             fiche = fiche_synthese("Benthos"), cle = "Composition_detaillee_annee")
 
 ## (c) Indicateur Algues/Corail, comparaison entre stations
 p <- graph_barres_sd(Indicateur_benthos %>% filter(Annee == annee_courante_benthos),
@@ -1954,15 +2004,15 @@ p <- graph_barres_sd(Indicateur_benthos %>% filter(Annee == annee_courante_benth
                      sous_titre = paste("Annee", annee_courante_benthos, "- un ratio croissant traduit une derive vers la dominance algale"),
                      y_lab = "Ratio Algues:Corail", decimales = 2) +
   theme(legend.position = "none")
-sauver_graph(p, "LIT BENTHOS/Annee_en_cours", "Indicateur_algues_corail", "standard")
+sauver_graph(p, "Benthos/Annee_en_cours", "Indicateur_algues_corail", "standard")
 
 ## (d) Evolution de l'indicateur Algues/Corail (toutes annees d'extraction)
 p <- graph_barres_sd(Indicateur_benthos, "Annee", "Ratio_algues_corail", fill = "Station",
                      palette = Palette_stations, titre = "Evolution de l'indicateur Algues / Corail",
                      sous_titre = "Ratio recouvrement algal / recouvrement corallien (LIT)",
                      y_lab = "Ratio Algues:Corail", decimales = 2)
-sauver_graph(p, "LIT BENTHOS/Annee_en_cours", "Evolution_indicateur_algues_corail", "standard",
-             fiche = fiche_synthese("Benthos"), ordre = 3)
+sauver_graph(p, "Benthos/Annee_en_cours", "Evolution_indicateur_algues_corail", "standard",
+             fiche = fiche_synthese("Benthos"), cle = "Indicateur_algues_corail")
 ```
 
 #### Coraux BELT : diversite et etat de sante de l'annee en cours
@@ -1970,7 +2020,7 @@ sauver_graph(p, "LIT BENTHOS/Annee_en_cours", "Evolution_indicateur_algues_corai
 # Derniere annee de suivi BELT (peut differer de celle du LIT)
 if (!is.null(Diversite_BELT) || !is.null(Etat_sante_BELT)) {
   annee_courante_belt <- max(c(Diversite_BELT$Annee, Etat_sante_BELT$Annee), na.rm = TRUE)
-  dossier_belt_annee <- "BELT CORAUX/Annee_en_cours"
+  dossier_belt_annee <- "Benthos/BELT"
 
   ## (a) Diversite corallienne : % des colonies par espece (barres
   # horizontales triees - plus lisible qu'un camembert avec 10-15 especes)
@@ -1998,7 +2048,7 @@ if (!is.null(Diversite_BELT) || !is.null(Etat_sante_BELT)) {
         theme(axis.text.y = element_text(face = "italic"), axis.title.x = element_text(face = "bold"))
       sauver_graph(p, dossier_belt_annee, paste0("Diversite_corallienne_", annee_courante_belt, "_", station_value),
                    "standard", hauteur = max(9, 0.65 * nrow(df) + 4),
-                   fiche = fiche_station(station_value, "Benthos"), ordre = 13)
+                   fiche = fiche_station(station_value, "Benthos"), cle = "Diversite_corallienne_annee")
     }
 
     ## Comparaison des stations (memes especes alignees)
@@ -2024,7 +2074,7 @@ if (!is.null(Diversite_BELT) || !is.null(Etat_sante_BELT)) {
             axis.title.y = element_blank())
     sauver_graph(p, dossier_belt_annee, paste0("Diversite_corallienne_", annee_courante_belt, "_stations"),
                  "pleine", hauteur = max(10, 0.5 * n_distinct(df_comp$Taxon) + 5),
-                 fiche = fiche_synthese("Benthos"), ordre = 9)
+                 fiche = fiche_synthese("Benthos"), cle = "Diversite_corallienne_annee")
   }
 
   ## (b) Etat de sante : camembert par station + comparaison des stations
@@ -2041,7 +2091,7 @@ if (!is.null(Diversite_BELT) || !is.null(Etat_sante_BELT)) {
                            sous_titre = paste0("Annee ", annee_courante_belt, " - ", n_col, " colonies recensees (BELT)"),
                            legende_nrow = 2)
       sauver_graph(p, dossier_belt_annee, paste0("Etat_sante_", annee_courante_belt, "_", station_value),
-                   "carre", fiche = fiche_station(station_value, "Benthos"), ordre = 14)
+                   "carre", fiche = fiche_station(station_value, "Benthos"), cle = "Etat_sante_coraux_annee")
     }
 
     p <- graph_empile(Sante_annee, "Station", "Pourcentage", "Etat_sante", Palette_sante_annee,
@@ -2050,7 +2100,7 @@ if (!is.null(Diversite_BELT) || !is.null(Etat_sante_BELT)) {
                       sous_titre = "Necrose, blanchissement, maladies (SCTLD et autres), mortalite - % des colonies (BELT)",
                       y_lab = "Colonies (%)", legende_nrow = 2, largeur_barre = 0.55)
     sauver_graph(p, dossier_belt_annee, paste0("Etat_sante_", annee_courante_belt, "_stations"), "standard",
-                 fiche = fiche_synthese("Benthos"), ordre = 10)
+                 fiche = fiche_synthese("Benthos"), cle = "Etat_sante_coraux_annee")
   }
 }
 ```
@@ -2064,8 +2114,8 @@ for (station_value in unique(Recouvrement_LIt_annee$Station)) {
                     "Annee", "Pourcentage_moyen", "LIT", Palette_nature_recouvrement,
                     titre = str_wrap(paste("Evolution du recouvrement benthique -", station_value), 45),
                     y_lab = "Recouvrement moyen (%)", legende_nrow = 3)
-  sauver_graph(p, "LIT BENTHOS/1.1_LIT", paste("Recouvrement_LIt", station_value), "pleine",
-               fiche = fiche_station(station_value, "Benthos"), ordre = 2)
+  sauver_graph(p, "Benthos/LIT", paste("Recouvrement_LIt", station_value), "pleine",
+               fiche = fiche_station(station_value, "Benthos"), cle = "Recouvrement_LIT_evolution")
 }
 
 ## (b) Composition detaillee (categories fines, historique Bouchon inclus)
@@ -2076,8 +2126,8 @@ for (station_value in unique(Recouvrement_detail_historique$Station)) {
                     sous_titre = if (any(df_station$Source == "Rapport_Bouchon_2024"))
                       "Annees 2018-2024 : rapport Bouchon & Bouchon-Navaro (2024)" else NULL,
                     y_lab = "Recouvrement moyen (%)", legende_nrow = 4)
-  sauver_graph(p, "LIT BENTHOS/1.2_Composition_detaillee", paste("Composition_detaillee", station_value), "pleine",
-               fiche = fiche_station(station_value, "Benthos"), ordre = 3)
+  sauver_graph(p, "Benthos/LIT", paste("Composition_detaillee", station_value), "pleine",
+               fiche = fiche_station(station_value, "Benthos"), cle = "Composition_detaillee_evolution")
 }
 
 ## (c) Composition corallienne par taxon (LIT ; recrutement Bouchon)
@@ -2088,7 +2138,7 @@ for (station_value in unique(Taxons_coralliens_historique$Station)) {
                     sous_titre = if (any(df_station$Source == "Recrutement_Bouchon_2024"))
                       str_wrap("Composition relative (%, somme = 100 par annee) : 2022/2026 = corail adulte (LIT) ; 2018-2024 (Bouchon) = recrutement juvenile", 70) else NULL,
                     y_lab = "Composition (%)", legende_ncol = 3, legende_italique = TRUE)
-  sauver_graph(p, "LIT BENTHOS/1.4_Taxons_coralliens", paste("Taxons_coralliens", station_value), "pleine",
+  sauver_graph(p, "Benthos/LIT_taxons_coralliens", paste("Taxons_coralliens", station_value), "pleine",
                hauteur = 16)
 }
 
@@ -2103,8 +2153,8 @@ for (categorie in c("Coraux durs", "Macroalgues molles")) {
                          "Moyenne +/- ecart-type des transects ; scleractiniaires + hydrocoralliaires (Millepora)"
                          else "Moyenne +/- ecart-type des transects",
                        y_lab = "Recouvrement (%)", suffixe = "%")
-  sauver_graph(p, "LIT BENTHOS/1.3_Comparaison_stations", paste0("Comparaison_", categorie), "standard",
-               fiche = fiche_synthese("Benthos"), ordre = if (categorie == "Coraux durs") 1 else 2)
+  sauver_graph(p, "Benthos/LIT", paste0("Comparaison_", categorie), "standard",
+               fiche = fiche_synthese("Benthos"), cle = if (categorie == "Coraux durs") "Corail_LIT" else "Macroalgues_LIT")
 }
 
 ## (e) Variabilite inter-replicats (controle qualite, pas pour les fiches)
@@ -2119,7 +2169,7 @@ for (station_value in unique(Recouvrement_LIt_replicat$Station)) {
     scale_fill_manual(values = Palette_nature_recouvrement, guide = "none") +
     labs(title = str_wrap(paste("Variabilite inter-replicats -", station_value), 45), y = "Recouvrement (%)") +
     theme_fiche() + theme(panel.spacing = unit(0.6, "cm"))
-  sauver_graph(p, "LIT BENTHOS/2.2_Variabilite_replicats", paste("Variabilite_replicats", station_value),
+  sauver_graph(p, "Benthos/LIT_controle_qualite", paste("Variabilite_replicats", station_value),
                "pleine", hauteur = 18)
 }
 
@@ -2139,7 +2189,7 @@ for (station_value in unique(Recouvrement_detail_historique$Station)) {
            "Annees 2018-2024 : rapport Bouchon & Bouchon-Navaro (2024)" else NULL) +
     theme_fiche(legende = "right") +
     theme(axis.line = element_blank(), axis.ticks = element_blank(), legend.title = element_text(size = 9))
-  sauver_graph(p, "LIT BENTHOS/2.3_Heatmap_synthese", paste("Heatmap_synthese", station_value), "standard",
+  sauver_graph(p, "Benthos/LIT_heatmap", paste("Heatmap_synthese", station_value), "standard",
                largeur = max(16, 3 * n_distinct(Heatmap_data$Annee) + 6), hauteur = 13)
 }
 
@@ -2162,8 +2212,8 @@ for (station_value in unique(BDD_long$Station)) {
                    sous_titre = "Rond = extraction ReefDB (30 m) ; triangle = historique ATE (60 m) ; carre = rapport Bouchon 2024\nCorail dur = scleractiniaires + hydrocoralliaires (Millepora)",
                    y_lab = "Recouvrement (%)")
   ajouter_tendance(p, station = station_value)
-  sauver_graph(p, "LIT BENTHOS/3.1_Serie_historique", paste0("Evolution_2002_2026_", station_value), "pleine",
-               hauteur = 15, fiche = fiche_station(station_value, "Benthos"), ordre = 4)
+  sauver_graph(p, "Benthos/LIT", paste0("Evolution_2002_2026_", station_value), "pleine",
+               hauteur = 15, fiche = fiche_station(station_value, "Benthos"), cle = "Serie_2002_2026_corail_macroalgues")
 }
 ```
 
@@ -2178,8 +2228,8 @@ if (nrow(Recrues_longue) > 0) {
                    sous_titre = "Rond = extraction ReefDB (quadrat) ; triangle = historique ATE ; carre = rapport Bouchon 2024\nBarres d'erreur = ecart-type inter-quadrats (annees d'extraction)",
                    y_lab = "Recrues / m²")
   ajouter_tendance(p, "Recrues")
-  sauver_graph(p, "QUADRATS RECRUES/Evolution densite de recrues coralliennes", "Evolution_2002_2026_recrues",
-               "pleine", hauteur = 15, fiche = fiche_synthese("Benthos"), ordre = 6)
+  sauver_graph(p, "Benthos/Recrues", "Evolution_2002_2026_recrues",
+               "pleine", hauteur = 15, fiche = fiche_synthese("Benthos"), cle = "Recrues")
 
   ## Barres par station, toutes annees (etoiles = test vs annee precedente)
   for (station_value in unique(Recrues_longue$Station)) {
@@ -2190,10 +2240,10 @@ if (nrow(Recrues_longue) > 0) {
                          titre = str_wrap(paste("Densite de recrues coralliennes -", station_value), 50),
                          sous_titre = "Moyenne +/- ecart-type inter-quadrats ; * test de Wilcoxon vs annee de suivi precedente",
                          y_lab = "Recrues / m²", decimales = 2)
-    sauver_graph(p, "QUADRATS RECRUES/Evolution densite de recrues coralliennes",
+    sauver_graph(p, "Benthos/Recrues",
                  paste0("Evolution_RECRUES_", station_value), "large",
                  largeur = min(24, max(14, 1.4 * n_distinct(df_station$Annee) + 6)),
-                 fiche = fiche_station(station_value, "Benthos"), ordre = 8)
+                 fiche = fiche_station(station_value, "Benthos"), cle = "Recrues")
   }
 }
 ```
@@ -2208,8 +2258,8 @@ if (nrow(Oursins_longue) > 0) {
                    sous_titre = "Rond = extraction ReefDB (quadrat) ; carre = rapport Bouchon 2024 (Baleine uniquement)\nBarres d'erreur = ecart-type inter-quadrats (annees d'extraction)",
                    y_lab = "Oursins / m²")
   ajouter_tendance(p, "Oursins")
-  sauver_graph(p, "QUADRATS OURSINS/Evolution densite oursins", "Evolution_2018_2026_oursins",
-               "pleine", hauteur = 14, fiche = fiche_synthese("Benthos"), ordre = 7)
+  sauver_graph(p, "Benthos/Oursins", "Evolution_2018_2026_oursins",
+               "pleine", hauteur = 14, fiche = fiche_synthese("Benthos"), cle = "Oursins")
 
   for (station_value in unique(Oursins_longue$Station)) {
     df_station <- Oursins_longue %>% filter(Station == station_value)
@@ -2219,9 +2269,9 @@ if (nrow(Oursins_longue) > 0) {
                          titre = str_wrap(paste("Densite d'oursins -", station_value), 50),
                          sous_titre = "Moyenne +/- ecart-type inter-quadrats ; * test de Wilcoxon vs annee de suivi precedente",
                          y_lab = "Oursins / m²", decimales = 2)
-    sauver_graph(p, "QUADRATS OURSINS/Evolution densite oursins", paste0("Evolution_OURSINS_", station_value),
+    sauver_graph(p, "Benthos/Oursins", paste0("Evolution_OURSINS_", station_value),
                  "large", largeur = min(24, max(14, 1.4 * n_distinct(df_station$Annee) + 6)),
-                 fiche = fiche_station(station_value, "Benthos"), ordre = 9)
+                 fiche = fiche_station(station_value, "Benthos"), cle = "Oursins")
   }
 
   ## Composition par espece (annees d'extraction)
@@ -2229,7 +2279,7 @@ if (nrow(Oursins_longue) > 0) {
     p <- graph_empile(Oursins_taxons %>% filter(Station == station_value), "Annee", "Densite_m2", "Taxon",
                       Palette_oursin, titre = str_wrap(paste("Densite d'oursins par espece -", station_value), 50),
                       y_lab = "Oursins / m²", decimales = 2, suffixe = "", legende_italique = TRUE)
-    sauver_graph(p, "QUADRATS OURSINS/Composition", paste0("Oursins_especes_", station_value), "standard")
+    sauver_graph(p, "Benthos/Oursins", paste0("Oursins_especes_", station_value), "standard")
   }
 }
 ```
@@ -2241,7 +2291,7 @@ if (nrow(Oursins_longue) > 0) {
 if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
   cat("\n!!! Aucune donnee BELT CORAIL disponible (cf. messages de la section 1.2) - pas de graphique BELT.\n")
 } else {
-  dossier_belt <- "BELT CORAUX/Evolution_coraux"
+  dossier_belt <- "Benthos/BELT"
   Palette_etat_sante_ok <- completer_palette(Palette_etat_sante, Etat_sante_BELT$Etat_sante)
 
   for (station_value in unique(c(Abondance_BELT$Station, Etat_sante_BELT$Station))) {
@@ -2259,7 +2309,7 @@ if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
                             "\n* test de Wilcoxon vs annee de suivi precedente"),
         y_lab = "Colonies / 10 m²", couleur = "lightsalmon3")
       sauver_graph(graphs_station$abondance, dossier_belt, paste0("Abondance_coraux_", station_value), "large",
-                   fiche = fiche_station(station_value, "Benthos"), ordre = 5)
+                   fiche = fiche_station(station_value, "Benthos"), cle = "Abondance_coraux_BELT")
     }
 
     ## (2) Diversite relative des especes
@@ -2276,7 +2326,7 @@ if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
                               paste(indices_station$txt, collapse = "  |  ")),
           y_lab = "Colonies (%)", legende_ncol = 3, legende_italique = TRUE, largeur_barre = 0.6)
         sauver_graph(graphs_station$diversite, dossier_belt, paste0("Diversite_relative_", station_value), "pleine",
-                     hauteur = 15, fiche = fiche_station(station_value, "Benthos"), ordre = 6)
+                     hauteur = 15, fiche = fiche_station(station_value, "Benthos"), cle = "Diversite_coraux_BELT")
       }
     }
 
@@ -2289,7 +2339,7 @@ if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
         sous_titre = "Necrose, blanchissement, maladies (SCTLD et autres), mortalite - % des colonies recensees",
         y_lab = "Colonies (%)", legende_nrow = 2, largeur_barre = 0.6)
       sauver_graph(graphs_station$sante, dossier_belt, paste0("Etat_sante_", station_value), "large",
-                   hauteur = 12, fiche = fiche_station(station_value, "Benthos"), ordre = 7)
+                   hauteur = 12, fiche = fiche_station(station_value, "Benthos"), cle = "Etat_sante_coraux_BELT")
     }
 
     ## Figure combinee (les 3 graphiques les uns sous les autres)
@@ -2298,10 +2348,8 @@ if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
       combiner <- function(liste) cowplot::plot_grid(plotlist = liste, ncol = 1, align = "v", axis = "lr",
                                                      rel_heights = hauteurs)
       figure <- combiner(graphs_station)
-      figure_fiche <- combiner(lapply(graphs_station, function(g) g + labs(title = NULL)))
       sauver_graph(figure, dossier_belt, paste0("Synthese_coraux_BELT_", station_value), "haute",
-                   hauteur = 11 * sum(hauteurs), fiche = fiche_station(station_value, "Benthos"), ordre = 10,
-                   plot_fiche = figure_fiche)
+                   hauteur = 11 * sum(hauteurs), )
       print(figure)
     }
   }
@@ -2312,22 +2360,22 @@ if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
                          fill = "Station", palette = Palette_stations,
                          titre = "Abondance de colonies coralliennes (protocole BELT)",
                          sous_titre = "Colonies / 10 m² : moyenne +/- ecart-type des replicats", y_lab = "Colonies / 10 m²")
-    sauver_graph(p, "BELT CORAUX/Composition_sante", "Densite_colonies", "standard",
-                 fiche = fiche_synthese("Benthos"), ordre = 4)
+    sauver_graph(p, "Benthos/BELT", "Densite_colonies", "standard",
+                 fiche = fiche_synthese("Benthos"), cle = "Abondance_coraux_BELT")
   }
   if (!is.null(Taux_atteinte_BELT) && nrow(Taux_atteinte_BELT) > 0) {
     p <- graph_barres_sd(Taux_atteinte_BELT, "Annee", "Pct_atteinte", fill = "Station", palette = Palette_stations,
                          titre = str_wrap("Taux de colonies coralliennes atteintes (necrose, maladie, blanchissement, mortalite)", 55),
                          sous_titre = "% de colonies non 'saines' parmi les colonies recensees (BELT)",
                          y_lab = "Colonies atteintes (%)", suffixe = "%")
-    sauver_graph(p, "BELT CORAUX/Composition_sante", "Taux_colonies_atteintes", "standard",
-                 fiche = fiche_synthese("Benthos"), ordre = 5)
+    sauver_graph(p, "Benthos/BELT", "Taux_colonies_atteintes", "standard",
+                 fiche = fiche_synthese("Benthos"), cle = "Colonies_atteintes_BELT")
   }
   if (!is.null(Indices_diversite_BELT) && nrow(Indices_diversite_BELT) > 0) {
     p <- graph_barres_sd(Indices_diversite_BELT, "Annee", "Richesse", fill = "Station", palette = Palette_stations,
                          titre = "Richesse specifique corallienne (protocole BELT)",
                          sous_titre = "Nombre d'especes recensees sur les 12 replicats", y_lab = "Nombre d'especes", decimales = 0)
-    sauver_graph(p, "BELT CORAUX/Composition_sante", "Richesse_corallienne", "standard")
+    sauver_graph(p, "Benthos/BELT", "Richesse_corallienne", "standard")
   }
 }
 ```
@@ -2340,8 +2388,8 @@ p <- graph_barres_sd(Recouvrement_macroalgues_global, "Annee", "Recouvrement_moy
                      titre = "Evolution du recouvrement en macroalgues",
                      sous_titre = "Moyenne +/- ET des quadrats (2 transects x 30 quadrats)",
                      y_lab = "Recouvrement moyen (%)", seuils = SEUILS_REFERENCE[["Macroalgues"]])
-sauver_graph(p, "QUADRATS MACROALGUES/Evolution_recouvrement", "Recouvrement_global", "standard",
-             fiche = fiche_synthese("Benthos"), ordre = 8)
+sauver_graph(p, "Benthos/Macroalgues", "Recouvrement_global", "standard",
+             fiche = fiche_synthese("Benthos"), cle = "Macroalgues_quadrats")
 
 for (station_value in unique(Recouvrement_macroalgues_global$Station)) {
   ## (b) Par station, avec test entre annees
@@ -2352,16 +2400,16 @@ for (station_value in unique(Recouvrement_macroalgues_global$Station)) {
                        titre = str_wrap(paste("Recouvrement en macroalgues -", station_value), 50),
                        sous_titre = "Moyenne +/- ET des quadrats ; * test de Wilcoxon vs annee de suivi precedente",
                        y_lab = "Recouvrement moyen (%)")
-  sauver_graph(p, "QUADRATS MACROALGUES/Evolution_recouvrement", paste0("Recouvrement_macroalgues_", station_value),
-               "large", fiche = fiche_station(station_value, "Benthos"), ordre = 11)
+  sauver_graph(p, "Benthos/Macroalgues", paste0("Recouvrement_macroalgues_", station_value),
+               "large", fiche = fiche_station(station_value, "Benthos"), cle = "Macroalgues_recouvrement")
 
   ## (c) Composition par taxon
   p <- graph_empile(Recouvrement_macroalgues_taxon %>% filter(Station == station_value),
                     "Annee", "Pourcentage_moyen", "Taxon", Palette_taxons_macroalgues,
                     titre = str_wrap(paste("Composition des macroalgues par taxon -", station_value), 50),
                     y_lab = "Recouvrement moyen (%)", legende_italique = TRUE, largeur_barre = 0.6)
-  sauver_graph(p, "QUADRATS MACROALGUES/Evolution_recouvrement", paste0("Composition_macroalgues_", station_value),
-               "standard", fiche = fiche_station(station_value, "Benthos"), ordre = 12)
+  sauver_graph(p, "Benthos/Macroalgues", paste0("Composition_macroalgues_", station_value),
+               "standard", fiche = fiche_station(station_value, "Benthos"), cle = "Macroalgues_composition")
 }
 ```
 
@@ -2386,8 +2434,8 @@ for (station_value in unique(Regime_trophique_pct_ANNEE$Station)) {
                            "Regime non renseigne" = COULEUR_NON_RENSEIGNE),
                          titre = str_wrap(paste0("Composition trophique (", tolower(param), ") - ", station_value), 45),
                          sous_titre = paste("Annee", annee_station))
-    sauver_graph(p, "POISSONS/Regimes_trophiques_annee_en_cours", paste0("Regime_", tolower(param), "_", station_value),
-                 "carre", fiche = fiche_station(station_value, "Poissons"), ordre = if (param == "Abondance") 1 else 2)
+    sauver_graph(p, "Poissons/Regimes_trophiques_annee_en_cours", paste0("Regime_", tolower(param), "_", station_value),
+                 "carre", fiche = fiche_station(station_value, "Poissons"), cle = if (param == "Abondance") "Regime_trophique_abondance_annee" else "Regime_trophique_biomasse_annee")
   }
 }
 ```
@@ -2422,10 +2470,13 @@ p <- ggplot(BDD_poissons_long, aes(x = Annee, y = Valeur, colour = Station, grou
   labs(title = "Evolution des indicateurs poissons",
        subtitle = "Rond = extraction ReefDB (BELT) ; carre = rapport Bouchon 2024 (Baleine uniquement)", y = NULL) +
   theme_fiche() + theme(legend.box = "vertical")
-sauver_graph(p, "POISSONS/Evolution_indicateurs", "Evolution_indicateurs_poissons", "panoramique", hauteur = 16)
+sauver_graph(p, "Poissons/Evolution_indicateurs", "Evolution_indicateurs_poissons", "panoramique", hauteur = 16)
 
 ## (b) Un graphique par indicateur (stations comparees + tendance)
-ordre_fiche <- 1
+# cle de chaque indicateur dans ORDRE_FICHES (R/00_parametres.R)
+Cles_fiche_poissons <- c(Richesse_specifique = "Richesse_poissons", Densite_100m2 = "Densite_poissons",
+                         Biomasse_kg_ha = "Biomasse_poissons", Pct_juveniles = "Part_juveniles",
+                         Nb_especes_juveniles = "Especes_avec_juveniles")
 for (code in names(Indicateurs_poissons)) {
   df_ind <- BDD_poissons_long %>% filter(Code == code)
   if (all(is.na(df_ind$Valeur))) next
@@ -2435,9 +2486,8 @@ for (code in names(Indicateurs_poissons)) {
                    sous_titre = "Rond = extraction ReefDB (BELT) ; carre = rapport Bouchon 2024",
                    y_lab = Indicateurs_poissons[[code]])
   ajouter_tendance(p, code)
-  sauver_graph(p, "POISSONS/Evolution_indicateurs", paste0("Evolution_", code), "standard",
-               fiche = fiche_synthese("Poissons"), ordre = ordre_fiche)
-  ordre_fiche <- ordre_fiche + 1
+  sauver_graph(p, "Poissons/Evolution_indicateurs", paste0("Evolution_", code), "standard",
+               fiche = fiche_synthese("Poissons"), cle = Cles_fiche_poissons[[code]])
 }
 
 ## (c) Par station : barres des 3 indicateurs principaux (toutes annees)
@@ -2449,9 +2499,9 @@ for (station_value in unique(BDD_evolution_poissons$Station)) {
                          labels_fill = Libelles_source, decimales = if (code == "Richesse_specifique") 0 else 1,
                          titre = str_wrap(paste(Indicateurs_poissons[[code]], "-", station_value), 50),
                          y_lab = Indicateurs_poissons[[code]])
-    sauver_graph(p, "POISSONS/Evolution_indicateurs_station", paste0(code, "_", station_value), "large",
+    sauver_graph(p, "Poissons/Evolution_indicateurs_station", paste0(code, "_", station_value), "large",
                  largeur = min(24, max(14, 1.4 * n_distinct(df_station$Annee) + 6)),
-                 fiche = fiche_station(station_value, "Poissons"), ordre = 2 + k)
+                 fiche = fiche_station(station_value, "Poissons"), cle = Cles_fiche_poissons[[code]])
   }
 }
 
@@ -2462,7 +2512,8 @@ Palette_trophique <- c(setNames(unname(Palette_regime_trophique[Abreviations_tro
 Libelles_trophique <- c("He" = "Herbivores", "Om" = "Omnivores", "Pl" = "Planctonophages",
                         "C1" = "Carnivores 1", "C2" = "Carnivores 2", "Pi" = "Piscivores",
                         "ND" = "Regime non renseigne")
-ordre_param <- c("Effectifs" = 6, "Biomasse" = 7, "Richesse spécifique" = 8)
+Cles_structure_trophique <- c("Effectifs" = "Structure_trophique_effectifs", "Biomasse" = "Structure_trophique_biomasse",
+                              "Richesse spécifique" = "Structure_trophique_richesse")
 
 for (param in unique(Trophique_historique$Paramètre)) {
   for (station_value in unique(Trophique_historique$Station)) {
@@ -2474,9 +2525,9 @@ for (param in unique(Trophique_historique$Paramètre)) {
                       sous_titre = if (any(df_param$Source == "Rapport_Bouchon_2024"))
                         "2018-2024 = rapport Bouchon 2024 ; 2022/2026 = extraction ReefDB (BELT)" else NULL,
                       legende_nrow = 2)
-    sauver_graph(p, "POISSONS/Structure_trophique_historique", paste0("Structure_trophique_", param, "_", station_value),
+    sauver_graph(p, "Poissons/Structure_trophique_historique", paste0("Structure_trophique_", param, "_", station_value),
                  "standard", fiche = fiche_station(station_value, "Poissons"),
-                 ordre = unname(ifelse(is.na(ordre_param[param]), 9, ordre_param[param])))
+                 cle = Cles_structure_trophique[param])
   }
 }
 ```
@@ -2493,16 +2544,16 @@ p <- graph_barres_sd(Descripteurs_long, "Annee", "Valeur", fill = "Station", pal
                      decimales = 2, titre = "Descripteurs ecologiques complementaires",
                      sous_titre = "MTL = niveau trophique moyen ; H' = indice de Shannon ; J = indice de Pielou") +
   facet_wrap(~Indicateur, scales = "free_y", ncol = 3)
-sauver_graph(p, "POISSONS/Evolution_indicateurs", "Descripteurs_MTL_Shannon_Pielou", "panoramique", hauteur = 10,
-             fiche = fiche_synthese("Poissons"), ordre = 6)
+sauver_graph(p, "Poissons/Evolution_indicateurs", "Descripteurs_MTL_Shannon_Pielou", "panoramique", hauteur = 10,
+             fiche = fiche_synthese("Poissons"), cle = "Descripteurs_MTL_Shannon_Pielou")
 
 for (station_value in unique(Taille_POISSONS_moderne$Station)) {
   p <- graph_empile(Taille_POISSONS_moderne %>% filter(Station == station_value),
                     "Annee", "Abondance_pourcent", "Taille_classe", Palette_taille, decimales = 0,
                     titre = str_wrap(paste("Structure de taille des poissons -", station_value), 50),
                     y_lab = "Abondance (%)", legende_nrow = 1)
-  sauver_graph(p, "POISSONS/Structure_taille", paste0("Structure_taille_", station_value), "standard",
-               fiche = fiche_station(station_value, "Poissons"), ordre = 9)
+  sauver_graph(p, "Poissons/Structure_taille", paste0("Structure_taille_", station_value), "standard",
+               fiche = fiche_station(station_value, "Poissons"), cle = "Structure_taille")
 }
 ```
 
@@ -2523,7 +2574,7 @@ Inspire du script d'analyse ichtyofaune GPMG (Grillon & Dahmani) : matrice de co
 # a mesure que le suivi s'enrichira d'annees supplementaires, mais
 # doivent etre interpretees avec une prudence extreme en l'etat actuel.
 
-dir.create(file.path(DOSSIER_GRAPHS, "POISSONS/Analyses_multivariees"), showWarnings = FALSE, recursive = TRUE)
+dir.create(file.path(DOSSIER_GRAPHS, "Annexes/Poissons/Analyses_multivariees"), showWarnings = FALSE, recursive = TRUE)
 
 # ------------------------------------------------------------
 # 1. Matrice de correlation entre abondances d'especes
@@ -2560,7 +2611,7 @@ if (ncol(mat_cor_source) >= 2 && nrow(mat_cor_source) >= 3) {
     couleurs_tl  <- Palette_regime_trophique[match(regimes_cols, names(Palette_regime_trophique))]
     couleurs_tl[is.na(couleurs_tl)] <- "grey40"
 
-    png(file.path(DOSSIER_GRAPHS, "POISSONS/Analyses_multivariees/Matrice_correlation_especes.png"),
+    png(file.path(DOSSIER_GRAPHS, "Annexes/Poissons/Analyses_multivariees/Matrice_correlation_especes.png"),
         width = 20, height = 20, units = "cm", res = 300, bg = "transparent")
     corrplot(cor_mat_filtered, type = "upper", tl.col = couleurs_tl,
              title = "\nCorrelations fortes (|r|>0.85) entre abondances d'especes\n(indicatif seulement, n=4 points)",
@@ -2606,7 +2657,7 @@ if (nrow(Description_POISSONS_Station) >= 3) {
   plot_acp_descripteurs <- grid.arrange(var_plot_acp, ind_plot_acp, nrow = 1,
     top = grid::textGrob("ACP descripteurs poissons (n petit - a titre exploratoire)", gp = grid::gpar(fontface = "bold")))
 
-  sauver_graph(plot_acp_descripteurs, "POISSONS/Analyses_multivariees", "ACP_descripteurs", "panoramique")
+  sauver_graph(plot_acp_descripteurs, "Poissons/Analyses_multivariees", "ACP_descripteurs", "panoramique")
   cat("\nACP descripteurs generee.\n")
 } else {
   cat("\nPas assez de Station x Annee pour l'ACP descripteurs (minimum 3).\n")
@@ -2629,7 +2680,7 @@ if (nrow(mat_pool) >= 3 && ncol(mat_cor_source) >= 2) {
     theme(legend.position = "top", legend.title = element_blank(),
           plot.title = element_text(hjust = 0.5))
 
-  sauver_graph(ind_plot_acp_especes, "POISSONS/Analyses_multivariees", "ACP_especes", "standard", hauteur = 14)
+  sauver_graph(ind_plot_acp_especes, "Poissons/Analyses_multivariees", "ACP_especes", "standard", hauteur = 14)
   cat("\nACP especes generee.\n")
 }
 
@@ -2678,8 +2729,8 @@ if (!is.null(nmds)) {
     theme_fiche(legende = "right") +
     theme(axis.title.x = element_text(face = "bold"), legend.title = element_text(size = 9))
 
-  sauver_graph(plot_nmds, "POISSONS/Analyses_multivariees", "NMDS", "pleine", hauteur = 14,
-               fiche = fiche_synthese("Poissons"), ordre = 7)
+  sauver_graph(plot_nmds, "Poissons/Analyses_multivariees", "NMDS", "pleine", hauteur = 14,
+               fiche = fiche_synthese("Poissons"), cle = "NMDS_communautes")
   cat("\nNMDS generee - stress =", round(nmds$stress, 3), "\n")
 
   # --------------------------------------------------------
@@ -2750,7 +2801,7 @@ if (exists("Recouvrement_benthos_complet") && !is.null(Recouvrement_benthos_comp
              subtitle = "n = 4 points - exploratoire, non significatif attendu",
              x = "Recouvrement corail dur (%)", y = "Biomasse totale (kg)")
 
-      sauver_graph(p1, "POISSONS/Correlations_benthos_poissons", "Corail_Biomasse", "standard")
+      sauver_graph(p1, "Poissons/Correlations_benthos_poissons", "Corail_Biomasse", "standard")
     }
 
     if ("Algues indicatrices d'eutrophisation (NIA)" %in% names(Correlations_benthos_poissons)) {
@@ -2768,7 +2819,7 @@ if (exists("Recouvrement_benthos_complet") && !is.null(Recouvrement_benthos_comp
              subtitle = "n = 4 points - exploratoire, non significatif attendu",
              x = "NIA (%)", y = "Richesse specifique (nb especes)")
 
-      sauver_graph(p2, "POISSONS/Correlations_benthos_poissons", "NIA_Richesse", "standard")
+      sauver_graph(p2, "Poissons/Correlations_benthos_poissons", "NIA_Richesse", "standard")
     }
 
   } else {
@@ -3070,12 +3121,12 @@ writeData(wb_cles, "Tendances", Tendances, headerStyle = style_entete)
 chemin_cles <- file.path(chemin_dossier, "CHIFFRES_CLES_FICHES.xlsx")
 saveWorkbook(wb_cles, chemin_cles, overwrite = TRUE)
 # meme fichier copie a cote des graphiques des fiches
-if (EXPORT_FICHES) file.copy(chemin_cles, file.path(DOSSIER_FICHES, "CHIFFRES_CLES_FICHES.xlsx"), overwrite = TRUE)
+file.copy(chemin_cles, file.path(DOSSIER_GRAPHS, "CHIFFRES_CLES_FICHES.xlsx"), overwrite = TRUE)
 cat("Classeur CHIFFRES CLES enregistre :", chemin_cles, "\n")
 ```
 
 # 4 SYNTHESE (rapport)
-Ce rapport HTML est produit en cliquant sur **Knit**. Il reprend les chiffres cles et les principaux graphiques de chaque fiche ; tous les fichiers sont dans `R_PLOT/FICHES/` (graphiques sans titre, numerotes dans l'ordre de la fiche) et `R_BDD/CHIFFRES_CLES_FICHES.xlsx`.
+Ce rapport HTML est produit en cliquant sur **Knit**. Il reprend les chiffres cles et les principaux graphiques de chaque fiche ; les graphiques sont dans `R_PLOT/<Station>/` et `R_PLOT/Synthese_*/` (sans titre, numerotes dans l'ordre de la fiche), les autres dans `R_PLOT/Annexes/`, et les chiffres cles dans `R_BDD/CHIFFRES_CLES_FICHES.xlsx`.
 
 ```{r}
 knitr::kable(Chiffres_cles_synthese, caption = "Chiffres cles par station (derniere annee de suivi)")
@@ -3094,11 +3145,13 @@ knitr::kable(Comparaisons_annees %>% mutate(across(where(is.numeric), ~ round(.x
 
 ```{r, results = "asis"}
 # Galerie des graphiques des fiches
-if (EXPORT_FICHES && dir.exists(DOSSIER_FICHES)) {
-  for (dossier in sort(list.dirs(DOSSIER_FICHES, recursive = TRUE))) {
+if (dir.exists(DOSSIER_GRAPHS)) {
+  dossiers_fiches <- list.dirs(DOSSIER_GRAPHS, recursive = TRUE)
+  dossiers_fiches <- dossiers_fiches[!grepl("/Annexes", dossiers_fiches)]
+  for (dossier in sort(dossiers_fiches)) {
     images <- sort(list.files(dossier, pattern = "\\.png$", full.names = TRUE))
     if (length(images) == 0) next
-    cat("\n\n### Fiche :", sub(paste0("^", DOSSIER_FICHES, "/?"), "", dossier), "\n\n")
+    cat("\n\n### Fiche :", sub(paste0("^", DOSSIER_GRAPHS, "/?"), "", dossier), "\n\n")
     for (img in images) cat("![](", img, "){width=48%} ", sep = "")
   }
 }

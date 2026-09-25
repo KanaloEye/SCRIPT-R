@@ -68,34 +68,49 @@ enregistrer_png <- function(plot, chemin, dims) {
 fiche_station  <- function(station, partie) file.path(nom_court_station(station), partie)
 fiche_synthese <- function(partie) paste0("Synthese_", partie)
 
-# Enregistre le graphique dans R_PLOT/<dossier>/<nom>.png et, si `fiche`
-# est renseigne, une copie SANS titre dans R_PLOT/FICHES/<fiche>/NN_<nom>.png
-# (NN = ordre d'apparition sur la fiche). `plot_fiche` permet de fournir
-# une version specifique pour la fiche (ex. figure combinee).
-sauver_graph <- function(plot, dossier, nom, format = "standard", fiche = NULL, ordre = NULL,
+# Au lancement du script : l'ancien R_PLOT est archive (cf. ARCHIVER_ANCIEN_R_PLOT)
+preparer_dossier_graphs <- function() {
+  if (ARCHIVER_ANCIEN_R_PLOT && dir.exists(DOSSIER_GRAPHS)) {
+    ancien <- paste0(DOSSIER_GRAPHS, "_ANCIEN")
+    unlink(ancien, recursive = TRUE)
+    file.rename(DOSSIER_GRAPHS, ancien)
+    cat("Ancien dossier", DOSSIER_GRAPHS, "archive dans", ancien, "\n")
+  }
+  dir.create(DOSSIER_GRAPHS, showWarnings = FALSE, recursive = TRUE)
+}
+
+# Enregistre un graphique UNE SEULE FOIS :
+#  - fiche + cle renseignees et cle presente dans ORDRE_FICHES :
+#      R_PLOT/<fiche>/NN_<cle>[_<station>].png (sans titre si FICHES_SANS_TITRE)
+#  - sinon : R_PLOT/Annexes/<dossier>/<nom>.png (avec titre)
+sauver_graph <- function(plot, dossier, nom, format = "standard", fiche = NULL, cle = NULL,
                          largeur = NULL, hauteur = NULL, plot_fiche = NULL) {
   dims <- FORMATS_EXPORT[[format]]
   if (is.null(dims)) stop("Format d'export inconnu : ", format)
   if (!is.null(largeur)) dims[1] <- largeur
   if (!is.null(hauteur)) dims[2] <- hauteur
-  nom <- nettoyer_nom_fichier(nom)
 
-  dossier_complet <- file.path(DOSSIER_GRAPHS, dossier)
-  dir.create(dossier_complet, showWarnings = FALSE, recursive = TRUE)
-  chemin <- file.path(dossier_complet, paste0(nom, ".png"))
-  enregistrer_png(plot, chemin, dims)
+  partie <- if (!is.null(fiche)) basename(fiche) else NULL
+  ordre  <- if (!is.null(partie) && !is.null(cle)) ORDRE_FICHES[[partie]][cle] else NA
 
-  if (EXPORT_FICHES && !is.null(fiche)) {
-    p_fiche <- if (!is.null(plot_fiche)) plot_fiche else plot
-    if (inherits(p_fiche, "ggplot") && is.null(plot_fiche)) {
-      if (FICHES_SANS_TITRE)      p_fiche <- p_fiche + ggplot2::labs(title = NULL)
-      if (FICHES_SANS_SOUS_TITRE) p_fiche <- p_fiche + ggplot2::labs(subtitle = NULL)
+  if (!is.null(fiche) && !is.na(ordre)) {
+    p <- if (!is.null(plot_fiche)) plot_fiche else plot
+    if (inherits(p, "ggplot") && is.null(plot_fiche)) {
+      if (FICHES_SANS_TITRE)      p <- p + ggplot2::labs(title = NULL)
+      if (FICHES_SANS_SOUS_TITRE) p <- p + ggplot2::labs(subtitle = NULL)
     }
-    dossier_fiche <- file.path(DOSSIER_FICHES, fiche)
-    dir.create(dossier_fiche, showWarnings = FALSE, recursive = TRUE)
-    nom_fiche <- if (!is.null(ordre)) sprintf("%02d_%s", ordre, nom) else nom
-    enregistrer_png(p_fiche, file.path(dossier_fiche, paste0(nom_fiche, ".png")), dims)
+    # suffixe station (fiches station) : evite 2 fichiers de meme nom dans Canva
+    suffixe <- if (dirname(fiche) != ".") paste0("_", basename(dirname(fiche))) else ""
+    dossier_complet <- file.path(DOSSIER_GRAPHS, fiche)
+    fichier <- sprintf("%02d_%s%s.png", as.integer(ordre), cle, suffixe)
+  } else {
+    p <- plot
+    dossier_complet <- file.path(DOSSIER_GRAPHS, "Annexes", dossier)
+    fichier <- paste0(nettoyer_nom_fichier(nom), ".png")
   }
+  dir.create(dossier_complet, showWarnings = FALSE, recursive = TRUE)
+  chemin <- file.path(dossier_complet, fichier)
+  enregistrer_png(p, chemin, dims)
   invisible(chemin)
 }
 

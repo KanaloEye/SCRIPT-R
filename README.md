@@ -23,9 +23,11 @@ Le dossier `R/` doit rester à côté du `.Rmd`.
 
 | Dossier / fichier | Contenu |
 |---|---|
-| `R_PLOT/...` | tous les graphiques, avec titre |
-| `R_PLOT/FICHES/<Station>/Benthos` et `/Poissons` | graphiques pour les fiches station, sans titre, numérotés dans l'ordre de la fiche |
-| `R_PLOT/FICHES/Synthese_Benthos` et `/Synthese_Poissons` | graphiques des fiches de synthèse (stations comparées) |
+| `R_PLOT/<Station>/Benthos` et `/Poissons` | graphiques des fiches station, sans titre, numérotés dans l'ordre de la fiche |
+| `R_PLOT/Synthese_Benthos` et `/Synthese_Poissons` | graphiques des fiches de synthèse (stations comparées) |
+| `R_PLOT/Annexes/...` | graphiques hors fiches (contrôle qualité, heatmaps, analyses multivariées…), avec titre |
+| `R_PLOT/CHIFFRES_CLES_FICHES.xlsx` | copie des chiffres clés à côté des graphiques |
+| `R_PLOT_ANCIEN/` | le R_PLOT du lancement précédent (archivé automatiquement) |
 | `R_BDD/CHIFFRES_CLES_FICHES.xlsx` | chiffres clés par station, avec un texte prêt à coller dans Canva, et les tendances |
 | `R_BDD/DATA_GCRMN_BENTHOS_MODIF.xlsx`, `..._POISSONS_MODIF.xlsx` | tables de résultats |
 | `ANALYSE_R_GCRMN_SBH_2026.html` | rapport (après Knit) |
@@ -35,6 +37,7 @@ Le dossier `R/` doit rester à côté du `.Rmd`.
 - `STATIONS` : couleurs des stations, à caler sur la charte Canva.
 - `POLICE_GRAPHS` : police des graphiques. Il faut que la police soit installée et le paquet `ragg` aussi.
 - `FORMATS_EXPORT` : tailles des graphiques (cm).
-- `FICHES_SANS_TITRE` : titre retiré des copies destinées aux fiches.
+- `FICHES_SANS_TITRE` : titre retiré des graphiques des fiches.
+- `ORDRE_FICHES` : ordre des graphiques dans chaque fiche (retirer une ligne = graphique envoyé en Annexes).
 - `BELT_MODE_COMPTAGE` : `"somme"` ou `"max"` pour une ligne BELT avec plusieurs états. **À confirmer.**
 - `SEUILS_REFERENCE` : lignes de seuil en pointillé sur les graphiques (vide par défaut).
