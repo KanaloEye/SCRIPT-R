@@ -1,0 +1,3859 @@
+---
+title: "ANALYSE R GCRMN SBH 2026"
+author: "Sebastien_CNUDDE"
+date: "2026-03-23"
+output: html_document
+---
+
+#Installation des packages
+```{r setup, include=FALSE}
+#install.packages("pacman")
+
+pacman::p_load(
+  #Telechargement
+  readxl,openxlsx,writexl,
+  #Graphs
+  ggplot2, ggrepel,RColorBrewer,scales,stringr,shiny,esquisse,plotly,rvg,officer,ggpattern,extrafont,
+  #Tableaux
+  kableExtra,
+  #Manipulations DF
+  tidyverse, dplyr, tidyr,
+  #Autres
+  cowplot, gridExtra,grDevices,knitr,lubridate,
+  #Statistique
+  car,
+  FSA,
+  rstatix, 
+  vegan,
+  factoextra,
+  FactoMineR,
+  corrplot,
+  ggpubr,
+  Factoshiny,
+  Kendall, 
+  #correction langage R
+  languageserver)
+
+```
+
+#1_Extraction et mise en forme des tables de données
+##1.1. LIT BENTHOS
+```{r, include=FALSE}
+# NB : la section "LIT CORAUX" d'origine chargeait bien le fichier
+# LIT-BENTHOS mais avec une logique de comptage de colonies (BELT) qui ne
+# correspond pas aux colonnes reellement presentes dans cet export (LIT =
+# Line Intercept Transect, recouvrement lineaire par segment, pas un
+# comptage d'individus). Elle est remplacee ici par le calcul correct.
+
+# --- 1. Lecture et mise en forme de la table brute ----------------------
+# NB : le fichier exporte par ReefDB contient un BOM UTF-8 ; fileEncoding
+# = "UTF-8" (comme pour POISSONS dans le script de reference) suffit a le
+# gerer correctement.
+LIT_BENTHOS <- read.csv2(
+  "Extractions BD Recif/reefdb-extraction-simple-GCRMN_SBH_LIT-BENTHOS.csv",
+  header = TRUE, sep = ";", quote = "\"", dec = ",",
+  fill = TRUE, comment.char = "", fileEncoding = "UTF-8"
+)
+
+# Renommage des colonnes utiles (memes conventions que le reste du script :
+# Replicat, Profondeur, etc.)
+# NB : read.csv2() convertit automatiquement les tirets "-" des en-tetes
+# en points "." (check.names = TRUE) ; on utilise donc les noms tels que
+# R les recree, pas les noms bruts du CSV.
+LIT_BENTHOS <- LIT_BENTHOS %>%
+  rename(
+    Replicat             = REPLICAT_Numero,
+    Transition_m         = `REPLICAT_Transition_Protocole_LIT_._transects_georeferences.Centimetre`,
+    Necrose_classe       = REPLICAT_Recouvrement_necrose_,
+    Substrat             = `REPLICAT_Substrat_Protocole_LIT_._transects_georeferences`,
+    Longueur_transect_m  = `REPLICAT_Longueur_transect_metre_ruban.Metre`,
+    Origine_m            = `REPLICAT_Origine_replicat_._protocole_LIT_._transects_georeferences.Metre`,
+    Profondeur           = `OBSERVATION_Profondeur.Metre`
+  )
+
+# Suppression des lignes d'en-tete de station/transect qui ne portent
+# aucune donnee de point (pas de Replicat renseigne)
+LIT_BENTHOS <- LIT_BENTHOS %>%
+  filter(!is.na(Replicat) & Replicat != "")
+
+# Date au format Date + colonne Annee (meme logique que RECRUES/OURSINS/POISSONS)
+LIT_BENTHOS$Date <- dmy(LIT_BENTHOS$Date)
+LIT_BENTHOS <- LIT_BENTHOS %>%
+  mutate(Annee = year(Date))
+
+cat("Lignes de points LIT apres nettoyage :", nrow(LIT_BENTHOS), "\n")
+cat("Stations :", paste(unique(LIT_BENTHOS$Station), collapse = ", "), "\n")
+cat("Annees :", paste(sort(unique(LIT_BENTHOS$Annee)), collapse = ", "), "\n")
+
+
+# --- 2. Categorie de recouvrement a chaque point de transition ----------
+# Chaque ligne = un point de transition sur le ruban. La categorie qui
+# "tient" jusqu'a ce point est :
+#   - le Groupe_taxons si renseigne (point biologique) ;
+#   - sinon le Substrat brut (point abiotique : roche nue, sable, debris).
+# On recode ensuite ces categories brutes vers les intitules deja utilises
+# par les palettes du script de reference (Palette_couverture_vivante,
+# Palette_substrat), pour rester compatible avec ces palettes existantes.
+LIT_BENTHOS <- LIT_BENTHOS %>%
+  mutate(
+    Categorie_brute = case_when(
+      !is.na(Groupe_taxons) & Groupe_taxons != "" ~ Groupe_taxons,
+      !is.na(Substrat)      & Substrat      != "" ~ Substrat,
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(Categorie_brute))
+
+# Niveau de detail (compatible Palette_couverture_vivante / Palette_substrat)
+LIT_BENTHOS <- LIT_BENTHOS %>%
+  mutate(
+    Categorie_detail = case_when(
+      Categorie_brute == "Algues dressées Molles"                           ~ "Macroalgues molles",
+      Categorie_brute == "Algues gazonnantes"                               ~ "Turf algal",
+      Categorie_brute == "Algues calcaires récifs"                          ~ "Algues calcaires encroutantes",
+      Categorie_brute == "Cyanophycées"                                     ~ "Cyanophycées",
+      Categorie_brute == "Cyanobactéries"                                   ~ "Cyanophycées",
+      Categorie_brute == "Eponge"                                           ~ "Eponges",
+      Categorie_brute == "Gorgones"                                         ~ "Gorgones",
+      Categorie_brute == "Corail Dur - Hard Coral"                          ~ "Coraux durs",
+      Categorie_brute == "Corail vivant"                                    ~ "Coraux durs",
+      Categorie_brute == "Corail Récemment Mort - Recently Killed  Coral"   ~ "Corail mort récent",
+      Categorie_brute == "Substrat dur nu / Roche nue"                      ~ "Roche",
+      Categorie_brute == "Sable"                                            ~ "Sable",
+      Categorie_brute == "Débris"                                           ~ "Débris",
+      TRUE ~ Categorie_brute  # filet de securite si une nouvelle categorie apparait
+    ),
+    # Regroupement de plus haut niveau (compatible Palette_nature_recouvrement)
+    # NB : Macroalgues molles (algues charnues brunes de type Dictyota,
+    # Turbinaria, Lobophora...) est classee ici avec les indicatrices
+    # d'eutrophisation (NIA), pas avec les "Autres algues" - c'est le
+    # groupe d'algues charnues classiquement utilise comme bio-indicateur
+    # d'enrichissement en nutriments dans le suivi GCRMN.
+    LIT = case_when(
+      Categorie_detail %in% c("Turf algal",
+                               "Macroalgues calcaires", "Algues calcaires encroutantes") ~ "Autres algues",
+      Categorie_detail %in% c("Macroalgues molles", "Cyanophycées")           ~ "Algues indicatrices d'eutrophisation (NIA)",
+      Categorie_detail %in% c("Eponges", "Gorgones")                        ~ "Autres invertébrés",
+      Categorie_detail == "Coraux durs"                                     ~ "Coraux durs",
+      Categorie_detail == "Zoanthaires"                                     ~ "Zoanthaires",
+      Categorie_detail == "Herbiers"                                        ~ "Herbiers",
+      Categorie_detail %in% c("Roche", "Sable", "Débris", "Corail mort récent") ~ "Non vivant",
+      TRUE ~ "Non vivant"
+    )
+  )
+
+# Avertir si des categories brutes inconnues restent non mappees
+categories_deja_mappees <- c("Roche", "Sable", "Débris", "Gorgones", "Cyanophycées")
+categories_non_reconnues <- LIT_BENTHOS %>%
+  filter(Categorie_detail == Categorie_brute &
+           !Categorie_brute %in% categories_deja_mappees) %>%
+  distinct(Categorie_brute)
+if (nrow(categories_non_reconnues) > 0) {
+  cat("ATTENTION - categories non reconnues (a mapper manuellement) :\n")
+  print(categories_non_reconnues)
+}
+
+
+# --- 3. Calcul du recouvrement (% lineaire) par replicat ----------------
+# Methode LIT classique : la longueur du segment associe a un point de
+# transition = distance entre ce point et le point de transition precedent
+# (le premier segment part de 0, ou de Origine_m si renseignee).
+LIT_BENTHOS <- LIT_BENTHOS %>%
+  arrange(Station, Date, Annee, Replicat, Transition_m) %>%
+  group_by(Station, Date, Annee, Replicat) %>%
+  mutate(
+    Point_precedent    = lag(Transition_m, default = 0),
+    Longueur_segment_m = Transition_m - Point_precedent
+  ) %>%
+  ungroup()
+
+# Controle qualite : aucun segment ne doit etre negatif (points non ordonnes)
+n_segments_negatifs <- sum(LIT_BENTHOS$Longueur_segment_m < 0, na.rm = TRUE)
+if (n_segments_negatifs > 0) {
+  warning(n_segments_negatifs, " segment(s) de longueur negative detecte(s) - verifier les points de transition.")
+}
+
+# Longueur totale de chaque transect : on utilise la longueur NOMINALE du
+# protocole (30 m), pas le dernier point de transition releve (qui varie
+# legerement, 29,70 a 29,90 m selon les transects, sans signification
+# ecologique - juste la position exacte du dernier repere pose).
+LONGUEUR_TRANSECT_NOMINALE_M <- 30
+
+Longueur_transects <- LIT_BENTHOS %>%
+  distinct(Programme, Station, Date, Annee, Replicat) %>%
+  mutate(Longueur_totale_m = LONGUEUR_TRANSECT_NOMINALE_M)
+
+cat("\nControle - longueur des transects (m, attendu ~30) :\n")
+print(Longueur_transects)
+
+
+# --- 4. Tables de recouvrement (% lineaire) -----------------------------
+
+## 4.1 Par replicat x categorie de detail
+Recouvrement_detail_replicat <- LIT_BENTHOS %>%
+  group_by(Programme, Station, Date, Annee, Replicat, LIT, Categorie_detail) %>%
+  summarise(Longueur_m = sum(Longueur_segment_m), .groups = "drop") %>%
+  left_join(Longueur_transects, by = c("Programme", "Station", "Date", "Annee", "Replicat")) %>%
+  # on complete avec 0% les categories non interceptees sur un replicat donne,
+  # pour que les moyennes/graphiques ne soient pas biaises
+  complete(
+    nesting(Programme, Station, Date, Annee, Replicat, Longueur_totale_m),
+    nesting(LIT, Categorie_detail) %>% distinct(),
+    fill = list(Longueur_m = 0)
+  ) %>%
+  mutate(Pourcentage_recouvrement = round(100 * Longueur_m / Longueur_totale_m, 2))
+
+## 4.2 Moyenne (+ ecart-type) par Station x Annee x categorie de detail
+Recouvrement_detail_annee <- Recouvrement_detail_replicat %>%
+  group_by(Programme, Station, Date, Annee, LIT, Categorie_detail) %>%
+  summarise(
+    Pourcentage_moyen = round(mean(Pourcentage_recouvrement, na.rm = TRUE), 2),
+    Pourcentage_ET     = round(sd(Pourcentage_recouvrement, na.rm = TRUE), 2),
+    n_replicats        = n(),
+    .groups = "drop"
+  )
+
+## 4.3 Meme chose au niveau "Nature du recouvrement" (regroupement large)
+Recouvrement_LIt_replicat <- LIT_BENTHOS %>%
+  group_by(Programme, Station, Date, Annee, Replicat, LIT) %>%
+  summarise(Longueur_m = sum(Longueur_segment_m), .groups = "drop") %>%
+  left_join(Longueur_transects, by = c("Programme", "Station", "Date", "Annee", "Replicat")) %>%
+  complete(
+    nesting(Programme, Station, Date, Annee, Replicat, Longueur_totale_m),
+    LIT,
+    fill = list(Longueur_m = 0)
+  ) %>%
+  mutate(Pourcentage_recouvrement = round(100 * Longueur_m / Longueur_totale_m, 2))
+
+Recouvrement_LIt_annee <- Recouvrement_LIt_replicat %>%
+  group_by(Programme, Station, Date, Annee, LIT) %>%
+  summarise(
+    Pourcentage_moyen = round(mean(Pourcentage_recouvrement, na.rm = TRUE), 2),
+    Pourcentage_ET     = round(sd(Pourcentage_recouvrement, na.rm = TRUE), 2),
+    n_replicats        = n(),
+    .groups = "drop"
+  )
+
+cat("\nApercu - recouvrement moyen par nature (%) :\n")
+print(Recouvrement_LIt_annee)
+
+
+# --- 5. Detail des taxons coralliens (coraux durs uniquement) -----------
+Taxons_coralliens_replicat <- LIT_BENTHOS %>%
+  filter(LIT == "Coraux durs", !is.na(Taxon) & Taxon != "") %>%
+  group_by(Programme, Station, Date, Annee, Replicat, Taxon) %>%
+  summarise(Longueur_m = sum(Longueur_segment_m), .groups = "drop") %>%
+  left_join(Longueur_transects, by = c("Programme", "Station", "Date", "Annee", "Replicat")) %>%
+  mutate(Pourcentage_recouvrement = round(100 * Longueur_m / Longueur_totale_m, 2))
+
+Taxons_coralliens_annee <- Taxons_coralliens_replicat %>%
+  group_by(Programme, Station, Date, Annee, Taxon) %>%
+  summarise(
+    Pourcentage_moyen = round(mean(Pourcentage_recouvrement, na.rm = TRUE), 2),
+    n_replicats        = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(Station, Annee, desc(Pourcentage_moyen))
+
+cat("\nApercu - recouvrement corail dur par taxon (%) :\n")
+print(head(Taxons_coralliens_annee, 15))
+
+
+# --- 6. Etat de necrose / blanchissement (donnees ponctuelles) ----------
+# Cette colonne n'est renseignee que sur les points ou une atteinte a ete
+# observee sur une colonie de corail (classes de recouvrement, pas de %
+# continu). On en tire une simple table de frequence par station/annee.
+Necrose_classes <- LIT_BENTHOS %>%
+  filter(!is.na(Necrose_classe) & Necrose_classe != "") %>%
+  count(Programme, Station, Date, Annee, Necrose_classe, name = "n_points")
+
+cat("\nApercu - points avec necrose/blanchissement releve :\n")
+print(Necrose_classes)
+
+
+# --- 6bis. Indicateur Algues / Corail (ratio macroalgues:corail) --------
+# Indicateur classique de sante recifale (GCRMN) : un ratio croissant dans
+# le temps traduit generalement un phase-shift algues au detriment du
+# corail. Calcule a partir de Recouvrement_detail_replicat (categories
+# fines), agrege par replicat puis moyenne par Station x Annee.
+Categories_algues <- c("Macroalgues molles", "Turf algal",
+                        "Macroalgues calcaires", "Algues calcaires encroutantes")
+
+Ratio_algues_corail_replicat <- Recouvrement_detail_replicat %>%
+  mutate(Groupe_ratio = case_when(
+    Categorie_detail %in% Categories_algues ~ "Algues",
+    Categorie_detail == "Coraux durs"        ~ "Corail",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(Groupe_ratio)) %>%
+  group_by(Programme, Station, Date, Annee, Replicat, Groupe_ratio) %>%
+  summarise(Pourcentage_recouvrement = sum(Pourcentage_recouvrement), .groups = "drop") %>%
+  pivot_wider(names_from = Groupe_ratio, values_from = Pourcentage_recouvrement, values_fill = 0) %>%
+  mutate(Ratio_algues_corail = round(Algues / pmax(Corail, 0.01), 2))  # evite la division par 0
+
+Ratio_algues_corail_annee <- Ratio_algues_corail_replicat %>%
+  group_by(Programme, Station, Date, Annee) %>%
+  summarise(
+    Algues_pct  = round(mean(Algues), 2),
+    Corail_pct  = round(mean(Corail), 2),
+    Ratio_algues_corail = round(mean(Ratio_algues_corail), 2),
+    .groups = "drop"
+  )
+
+cat("\nApercu - indicateur Algues/Corail :\n")
+print(Ratio_algues_corail_annee)
+
+
+```
+
+
+##1.2. BELT CORAUX
+```{r}
+# NB : si aucun graphique BELT n'apparaissait, c'est que ce bloc ne
+# trouvait pas le fichier (chemin/nom different) ou pas la feuille
+# attendue : il se contentait alors d'un warning() discret et toutes les
+# tables BELT restaient NULL. Le bloc cherche desormais le fichier dans
+# tout le dossier "BD Excel", prend la bonne feuille (ou la 1re a defaut),
+# detecte les colonnes par motif et AFFICHE clairement ce qu'il a lu.
+FICHIER_BELT_CORAIL <- "BD Excel/SUIVI_GCRMN_BELT_CORAIL_2026.xlsx"
+FEUILLE_BELT_CORAIL <- "FICHE DE SAISIE BELT CORAIL"
+
+# Etats de sante exclus du calcul d'ABONDANCE / de DIVERSITE (colonies
+# mortes depuis longtemps = squelettes, pas des coraux vivants). Mettre
+# character(0) pour tout compter.
+ETATS_EXCLUS_ABONDANCE <- c("Mort_Ancien")
+
+if (!file.exists(FICHIER_BELT_CORAIL)) {
+  candidats_belt <- list.files("BD Excel", pattern = "BELT.*\\.xlsx?$", recursive = TRUE,
+                               full.names = TRUE, ignore.case = TRUE)
+  candidats_belt <- candidats_belt[!grepl("~\\$", candidats_belt)]  # fichiers temporaires Excel
+  if (length(candidats_belt) > 0) {
+    cat("Fichier BELT attendu introuvable ; fichier utilise a la place :", candidats_belt[1], "\n")
+    FICHIER_BELT_CORAIL <- candidats_belt[1]
+  }
+}
+
+# Recherche d'une colonne par motif (insensible a la casse/aux accents
+# courants) : renvoie le 1er nom de colonne correspondant, ou NA
+trouver_colonne <- function(df, motifs) {
+  noms <- names(df)
+  noms_simplifies <- tolower(iconv(noms, to = "ASCII//TRANSLIT"))
+  for (m in motifs) {
+    idx <- which(grepl(m, noms_simplifies, perl = TRUE))
+    if (length(idx) > 0) return(noms[idx[1]])
+  }
+  NA_character_
+}
+
+BELT_CORAIL <- NULL; BELT_CORAIL_long <- NULL; Etat_sante_BELT <- NULL
+Taux_atteinte_BELT <- NULL; Abondance_BELT_replicat <- NULL; Abondance_BELT <- NULL
+Diversite_BELT <- NULL; Indices_diversite_BELT <- NULL
+
+if (file.exists(FICHIER_BELT_CORAIL)) {
+
+  feuilles <- excel_sheets(FICHIER_BELT_CORAIL)
+  feuille <- if (FEUILLE_BELT_CORAIL %in% feuilles) FEUILLE_BELT_CORAIL else feuilles[1]
+  if (feuille != FEUILLE_BELT_CORAIL) {
+    cat("Feuille '", FEUILLE_BELT_CORAIL, "' absente - lecture de la feuille '", feuille, "'\n", sep = "")
+  }
+  BELT_CORAIL <- read_excel(FICHIER_BELT_CORAIL, sheet = feuille)
+
+  cat("\nBELT CORAIL - fichier :", FICHIER_BELT_CORAIL, "| feuille :", feuille,
+      "|", nrow(BELT_CORAIL), "lignes\nColonnes lues :\n")
+  print(names(BELT_CORAIL))
+
+  col_station  <- trouver_colonne(BELT_CORAIL, c("^station$", "station", "^site$"))
+  col_date     <- trouver_colonne(BELT_CORAIL, c("^date$", "date"))
+  col_annee    <- trouver_colonne(BELT_CORAIL, c("^annee$", "^year$"))
+  col_cote     <- trouver_colonne(BELT_CORAIL, c("^cote$", "cote"))
+  col_transect <- trouver_colonne(BELT_CORAIL, c("replicat_transect", "^transect", "transect", "replicat"))
+  col_longueur <- trouver_colonne(BELT_CORAIL, c("longueur"))
+  col_largeur  <- trouver_colonne(BELT_CORAIL, c("largeur"))
+  col_taxon    <- trouver_colonne(BELT_CORAIL, c("^taxon$", "^espece$", "^especes$", "taxon", "espece", "^genre$", "species"))
+  cols_etat    <- grep("^Nb_", names(BELT_CORAIL), value = TRUE)
+  cols_etat    <- setdiff(cols_etat, grep("total", cols_etat, ignore.case = TRUE, value = TRUE))
+
+  cat("\nColonnes detectees : Station =", col_station, "| Date =", col_date, "| Annee =", col_annee,
+      "| Cote =", col_cote, "| Transect =", col_transect, "| Longueur =", col_longueur,
+      "| Largeur =", col_largeur, "| Taxon =", col_taxon,
+      "\nColonnes d'etat de sante (Nb_*) :", paste(cols_etat, collapse = ", "), "\n")
+
+  if (is.na(col_station) || (is.na(col_date) && is.na(col_annee)) || length(cols_etat) == 0) {
+    warning("BELT CORAIL : colonnes Station / Date (ou Annee) / Nb_* introuvables dans '",
+            FICHIER_BELT_CORAIL, "' - verifier les noms de colonnes affiches ci-dessus.")
+  } else {
+
+    # NB : la colonne Programme brute contient une coquille de saisie (une
+    # seule ligne a "GCRMN" en 2022 au lieu de vide) - valeur fixe.
+    BELT_CORAIL <- BELT_CORAIL %>%
+      mutate(
+        Programme = "GCRMN_SBH_BELT_CORAIL",
+        Station = as.character(.data[[col_station]]),
+        Station = case_when(
+          str_detect(Station, regex("Baleine", ignore_case = TRUE)) ~ "Baleine de Pain de Sucre",
+          str_detect(Station, regex("Coco", ignore_case = TRUE))    ~ "Ilet Coco",
+          TRUE ~ Station
+        ),
+        Annee = if (!is.na(col_annee)) suppressWarnings(as.numeric(.data[[col_annee]]))
+                else year(as.Date(.data[[col_date]])),
+        Cote_brute     = if (!is.na(col_cote)) as.character(.data[[col_cote]]) else NA_character_,
+        Transect_brut  = if (!is.na(col_transect)) as.character(.data[[col_transect]]) else "1",
+        # 12 replicats = 2 cotes (Droite/Gauche) x 6 transects de 10 x 1 m
+        Replicat = ifelse(is.na(Cote_brute), Transect_brut, paste(Cote_brute, Transect_brut, sep = "_")),
+        Longueur_m = if (!is.na(col_longueur)) suppressWarnings(as.numeric(.data[[col_longueur]])) else NA_real_,
+        Largeur_m  = if (!is.na(col_largeur))  suppressWarnings(as.numeric(.data[[col_largeur]]))  else NA_real_,
+        # surface standard du protocole (10 m x 1 m) si non renseignee
+        Surface_m2 = ifelse(is.na(Longueur_m * Largeur_m) | Longueur_m * Largeur_m <= 0,
+                            10, Longueur_m * Largeur_m),
+        Taxon = if (!is.na(col_taxon)) str_squish(as.character(.data[[col_taxon]])) else NA_character_
+      ) %>%
+      filter(!is.na(Station), Station != "", !is.na(Annee)) %>%
+      mutate(across(all_of(cols_etat), ~ suppressWarnings(as.numeric(.x))))
+
+    cat("\nBELT CORAIL - lignes par Station x Annee :\n")
+    print(BELT_CORAIL %>% count(Station, Annee), n = Inf)
+
+    # Plan d'echantillonnage : tous les replicats reellement prospectes
+    # (y compris ceux sans aucune colonie -> abondance 0 dans la moyenne)
+    Replicats_BELT <- BELT_CORAIL %>%
+      group_by(Programme, Station, Annee, Replicat) %>%
+      summarise(Surface_m2 = first(Surface_m2), .groups = "drop")
+
+    Surface_totale_BELT <- Replicats_BELT %>%
+      group_by(Station, Annee) %>%
+      summarise(Surface_totale_m2 = sum(Surface_m2), n_replicats = n(), .groups = "drop")
+
+    # Format long : une ligne par etat de sante recense (Sain, Necrose,
+    # SCTLD (maladie de deperissement des tissus), Autres_Maladies,
+    # Blanchissement, Mort_Recent, Mort_Ancien)
+    BELT_CORAIL_long <- BELT_CORAIL %>%
+      pivot_longer(cols = all_of(cols_etat), names_to = "Etat_sante", values_to = "Nombre") %>%
+      filter(!is.na(Nombre), Nombre > 0) %>%
+      mutate(Etat_sante = str_remove(Etat_sante, "^Nb_"))
+
+    ## (1) ABONDANCE : colonies / 10 m² par replicat, puis moyenne +/- ET
+    Abondance_BELT_replicat <- BELT_CORAIL_long %>%
+      filter(!Etat_sante %in% ETATS_EXCLUS_ABONDANCE) %>%
+      group_by(Programme, Station, Annee, Replicat) %>%
+      summarise(Nb_colonies = sum(Nombre), .groups = "drop") %>%
+      right_join(Replicats_BELT, by = c("Programme", "Station", "Annee", "Replicat")) %>%
+      mutate(Nb_colonies = replace_na(Nb_colonies, 0),
+             Densite_10m2 = 10 * Nb_colonies / Surface_m2)
+
+    Abondance_BELT <- Abondance_BELT_replicat %>%
+      group_by(Programme, Station, Annee) %>%
+      summarise(
+        Densite_moy_10m2 = round(mean(Densite_10m2), 2),
+        Densite_ET_10m2  = round(sd(Densite_10m2), 2),
+        Densite_ES_10m2  = round(sd(Densite_10m2) / sqrt(n()), 2),
+        Nb_colonies_total = sum(Nb_colonies),
+        n_replicats = n(),
+        .groups = "drop"
+      )
+    cat("\nApercu - Abondance_BELT (colonies / 10 m², moyenne +/- ET des replicats) :\n")
+    print(Abondance_BELT, n = Inf)
+
+    ## (2) DIVERSITE RELATIVE : part (%) de chaque espece dans les colonies
+    if (!is.na(col_taxon)) {
+      Diversite_BELT <- BELT_CORAIL_long %>%
+        filter(!Etat_sante %in% ETATS_EXCLUS_ABONDANCE, !is.na(Taxon), Taxon != "") %>%
+        group_by(Programme, Station, Annee, Taxon) %>%
+        summarise(Nb_colonies = sum(Nombre), .groups = "drop") %>%
+        group_by(Station, Annee) %>%
+        mutate(Pourcentage = round(100 * Nb_colonies / sum(Nb_colonies), 1)) %>%
+        ungroup() %>%
+        arrange(Station, Annee, desc(Pourcentage))
+
+      Indices_diversite_BELT <- Diversite_BELT %>%
+        group_by(Station, Annee) %>%
+        summarise(
+          Richesse = n_distinct(Taxon),
+          Shannon  = round(vegan::diversity(Nb_colonies, index = "shannon"), 2),
+          Pielou   = round(ifelse(Richesse > 1, Shannon / log(Richesse), NA_real_), 2),
+          .groups = "drop"
+        )
+      cat("\nApercu - indices de diversite corallienne (BELT) :\n")
+      print(Indices_diversite_BELT, n = Inf)
+    } else {
+      cat("\nAucune colonne Taxon/Espece dans le fichier BELT - graphique de diversite non produit.\n")
+    }
+
+    ## (3) ETAT DE SANTE : composition (%) et densite par Station x Annee
+    Etat_sante_BELT <- BELT_CORAIL_long %>%
+      group_by(Programme, Station, Annee, Etat_sante) %>%
+      summarise(Nombre_colonies = sum(Nombre), .groups = "drop") %>%
+      left_join(Surface_totale_BELT, by = c("Station", "Annee")) %>%
+      group_by(Station, Annee) %>%
+      mutate(
+        Pourcentage   = round(100 * Nombre_colonies / sum(Nombre_colonies), 1),
+        Densite_100m2 = round(100 * Nombre_colonies / Surface_totale_m2, 2)
+      ) %>%
+      ungroup()
+
+    cat("\nApercu - Etat_sante_BELT :\n")
+    print(Etat_sante_BELT, n = Inf)
+
+    # Indicateur synthetique : taux de colonies atteintes (tout sauf Sain)
+    Taux_atteinte_BELT <- BELT_CORAIL_long %>%
+      mutate(Categorie = ifelse(Etat_sante == "Sain", "Saine", "Atteinte")) %>%
+      group_by(Programme, Station, Annee, Categorie) %>%
+      summarise(Nombre = sum(Nombre), .groups = "drop") %>%
+      pivot_wider(names_from = Categorie, values_from = Nombre, values_fill = 0)
+    if (!"Saine" %in% names(Taux_atteinte_BELT))    Taux_atteinte_BELT$Saine <- 0
+    if (!"Atteinte" %in% names(Taux_atteinte_BELT)) Taux_atteinte_BELT$Atteinte <- 0
+    Taux_atteinte_BELT <- Taux_atteinte_BELT %>%
+      mutate(
+        Total = Saine + Atteinte,
+        Pct_atteinte = round(100 * Atteinte / Total, 1)
+      ) %>%
+      left_join(Surface_totale_BELT, by = c("Station", "Annee")) %>%
+      mutate(Densite_totale_100m2 = round(100 * Total / Surface_totale_m2, 2))
+
+    cat("\nApercu - Taux_atteinte_BELT :\n")
+    print(Taux_atteinte_BELT)
+  }
+
+} else {
+  warning("Fichier BELT CORAIL introuvable ('", FICHIER_BELT_CORAIL,
+          "', ni aucun fichier *BELT*.xlsx dans 'BD Excel') - BELT CORAIL non integre.")
+  cat("\n!!! BELT CORAIL : aucun fichier trouve -> aucun graphique BELT ne sera produit.\n")
+}
+```
+
+##1.3_QUADRAT_RECRUES
+```{r}
+#lecture de la table brute
+RECRUES=read.csv2("Extractions BD Recif/reefdb-extraction-simple-GCRMN_SBH_RECRUES.csv", header = TRUE, sep = ";", quote = "\"",
+          dec = ",", fill = TRUE, comment.char = "")
+
+# Renomer les colonnes 
+RECRUES <- RECRUES %>%
+	rename(Replicat= REPLICAT_Numero )
+
+#Selection des colonnes utiles
+RECRUES=select(RECRUES, 'Programme','Station','Date', 'Replicat',
+                  'REPLICAT_Nombre_de_recrues_coralliennes_Protocole_Quadrat',
+                  'OBSERVATION_Profondeur.Metre')
+
+# Harmonisation du nom des stations (l'export ReefDB peut utiliser des
+# variantes - ex. "Baleine Pain de Sucre", "Coco" - deja rencontrees sur
+# d'autres extractions de ce meme suivi) pour garantir la correspondance
+# avec les autres protocoles (LIT-BENTHOS, BELT CORAIL...) lors des
+# fusions ulterieures (section 1.7, historique ATE/Bouchon).
+RECRUES <- RECRUES %>%
+  mutate(
+    Station = case_when(
+      str_detect(Station, regex("Baleine", ignore_case = TRUE)) ~ "Baleine de Pain de Sucre",
+      str_detect(Station, regex("Coco", ignore_case = TRUE))    ~ "Ilet Coco",
+      TRUE ~ Station
+    )
+  )
+
+
+#Date au format yyyy-mm-dd
+RECRUES$Date <- dmy(RECRUES$Date)
+
+# Créer la colonne Annee
+RECRUES<- RECRUES%>%
+  mutate(Annee = format(Date, "%Y"))
+
+#nombre de ligne par date/station : supposé = 60
+# NB : na.omit() sur TOUTES les colonnes supprime la ligne entiere des
+# qu'UNE SEULE colonne est NA - si Profondeur (ou une autre colonne
+# annexe) n'est pas renseignee pour une annee entiere dans l'extraction
+# (deja rencontre sur ce jeu de donnees pour d'autres protocoles), cette
+# annee disparaissait alors completement des graphiques d'evolution,
+# meme quand le nombre de recrues etait bien renseigne. On ne retire
+# desormais que les lignes ou la mesure elle-meme manque.
+RECRUES <- RECRUES %>%
+  filter(!is.na(REPLICAT_Nombre_de_recrues_coralliennes_Protocole_Quadrat))
+
+# RECRUES <- RECRUES %>%
+#   filter(Annee == max(Annee, na.rm = TRUE)) ## CE TEST NIKE LES GRAPHIQUES !!!!!!!!!!
+
+
+#test du nombre d'observation
+result_RECRUES <- RECRUES %>%
+  mutate(Annee = year(Date)) %>%
+  group_by(Annee, Station) %>%
+  summarise(
+    Nombre_de_lignes = n(),
+    .groups = "drop"
+  )
+
+
+dir.create("Historique de bancarisation", showWarnings = FALSE)
+write_xlsx(result_RECRUES, "Historique de bancarisation/result_RECRUES.xlsx")
+```
+
+##1.4_QUADRAT_OURSINS
+```{r}
+#lecture de la table brute
+OURSINS=read.csv2("Extractions BD Recif/reefdb-extraction-simple-GCRMN_SBH_OURSINS.csv", header = TRUE, sep = ";", quote = "\"",
+          dec = ",", fill = TRUE, comment.char = "")
+# Renomer les colonnes 
+OURSINS <- OURSINS %>%
+	rename(Replicat= REPLICAT_Numero )
+
+#Selection des colonnes utiles
+OURSINS=select(OURSINS, 'Programme', 'Station','Date', 'Replicat','Taxon',
+                  'REPLICAT_Abondance_macrofaune_Protocole_Quadrat_._suivi_cible',
+                  'OBSERVATION_Profondeur.Metre')%>%
+
+# Ajouter "Diadema antillarium" à la colonne Taxon si elle est vide et que la condition sur REPLICAT_Abondance est remplie
+mutate(
+    Taxon = ifelse(
+      Taxon == "" & REPLICAT_Abondance_macrofaune_Protocole_Quadrat_._suivi_cible > 0,
+      "Diadema antillarum",
+      Taxon
+    )
+  )
+
+
+#nombre de ligne par date/station : supposé = 60
+# NB : meme correction que pour RECRUES ci-dessus - on ne retire que les
+# lignes ou la mesure elle-meme (abondance) manque, pas toute ligne avec
+# une colonne annexe (ex. Profondeur) non renseignee, qui ferait
+# disparaitre des annees entieres des graphiques d'evolution.
+OURSINS <- OURSINS %>%
+  filter(!is.na(REPLICAT_Abondance_macrofaune_Protocole_Quadrat_._suivi_cible))
+
+# Harmonisation du nom des stations (cf. meme correction sur RECRUES
+# ci-dessus - garantit la correspondance lors des fusions historiques)
+OURSINS <- OURSINS %>%
+  mutate(
+    Station = case_when(
+      str_detect(Station, regex("Baleine", ignore_case = TRUE)) ~ "Baleine de Pain de Sucre",
+      str_detect(Station, regex("Coco", ignore_case = TRUE))    ~ "Ilet Coco",
+      TRUE ~ Station
+    )
+  )
+
+#Date au format yyyy-mm-dd
+OURSINS$Date <- dmy(OURSINS$Date)
+
+# Créer la colonne Annee
+OURSINS<- OURSINS%>%
+  mutate(Annee = format(Date, "%Y"))
+
+#test du nombre d'observation
+result_OURSINS <- OURSINS %>%
+  mutate(Annee = year(Date)) %>%
+  group_by(Annee, Station) %>%
+  summarise(
+    Nombre_de_lignes = n(),
+    .groups = "drop"
+  )
+
+
+dir.create("Historique de bancarisation", showWarnings = FALSE)
+write_xlsx(result_OURSINS, "Historique de bancarisation/result_OURSINS.xlsx")
+
+```
+
+##1.5_MACROALGUES
+```{r}
+#lecture de la table brute
+MACROALGUES=read.csv2("Extractions BD Recif/reefdb-extraction-simple-GCRMN_SBH_MACROALGUES.csv", header = TRUE, sep = ";", quote = "\"",
+          dec = ",", fill = TRUE, comment.char = "")
+
+# Renomer les colonnes 
+MACROALGUES <- MACROALGUES %>%
+	rename(Replicat= REPLICAT_Numero )
+
+
+#Selection des colonnes utiles
+MACROALGUES=select(MACROALGUES, 'Programme','Station','Date', 'Replicat','Taxon','Groupe_taxons',
+                  'REPLICAT_Algues_._classe_de_recouvrement_absolu.Pourcentage',
+                  'OBSERVATION_Profondeur.Metre')
+
+#modification nom des stations
+MACROALGUES <- MACROALGUES %>%
+  mutate(
+    Station = case_when(
+      Station == "Petite-Terre - NE Passe" ~ "Petite Terre NE Passe",
+      Station == "Petite-Terre - Passe" ~ "Petite Terre Passe",
+      TRUE ~ Station
+    )
+  )
+
+# Supprimer les lignes avec Replicat vide dans la DataFrame MACROALGUES
+MACROALGUES <- MACROALGUES %>% filter(!is.na(Replicat) & Replicat != "")
+
+#Date au format yyyy-mm-dd
+MACROALGUES$Date <- dmy(MACROALGUES$Date)
+
+# Corrections des erreurs et dérives de bancarisation BD RECIF
+MACROALGUES <- MACROALGUES %>%
+  mutate(REPLICAT_Algues_._classe_de_recouvrement_absolu.Pourcentage = case_when(REPLICAT_Algues_._classe_de_recouvrement_absolu.Pourcentage == "1-5%" ~ "1-10%", TRUE ~ REPLICAT_Algues_._classe_de_recouvrement_absolu.Pourcentage))
+
+#test du nombre d'observation
+result_MACROALGUES <- MACROALGUES %>%
+  group_by(Date, Station) %>%
+  summarise(Nombre_de_lignes = n(), .groups = 'drop')
+
+# --- Analyse : conversion des classes en % et agregations ---------------
+MACROALGUES <- MACROALGUES %>%
+  mutate(Annee = year(Date))
+
+# Conversion des classes de recouvrement (Braun-Blanquet) en % numerique
+# (point milieu de chaque classe - convention standard pour ce type de
+# releve semi-quantitatif par quadrat).
+MACROALGUES <- MACROALGUES %>%
+  mutate(
+    Pourcentage_mid = case_when(
+      `REPLICAT_Algues_._classe_de_recouvrement_absolu.Pourcentage` == "0"       ~ 0,
+      `REPLICAT_Algues_._classe_de_recouvrement_absolu.Pourcentage` == "1-10%"   ~ 5.5,
+      `REPLICAT_Algues_._classe_de_recouvrement_absolu.Pourcentage` == "11-50%"  ~ 30.5,
+      `REPLICAT_Algues_._classe_de_recouvrement_absolu.Pourcentage` == "51-90%"  ~ 70.5,
+      `REPLICAT_Algues_._classe_de_recouvrement_absolu.Pourcentage` == "91-100%" ~ 95.5,
+      TRUE ~ NA_real_
+    ),
+    # un quadrat sans taxon renseigne = quadrat sans algue (classe "0")
+    Taxon = ifelse(is.na(Taxon) | Taxon == "", "Aucune algue (quadrat vide)", Taxon)
+  )
+
+# Recouvrement global moyen (%) par Station x Annee, sur l'ensemble des
+# quadrats (60 par station/annee : 2 transects x 30 quadrats)
+Recouvrement_macroalgues_global <- MACROALGUES %>%
+  group_by(Programme, Station, Date, Annee) %>%
+  summarise(
+    Recouvrement_moyen = round(mean(Pourcentage_mid, na.rm = TRUE), 2),
+    Recouvrement_ET    = round(sd(Pourcentage_mid, na.rm = TRUE), 2),
+    n_quadrats         = n(),
+    .groups = "drop"
+  )
+
+cat("\nApercu - Recouvrement_macroalgues_global :\n")
+print(Recouvrement_macroalgues_global)
+
+# Composition par taxon : moyenne du recouvrement de chaque taxon sur
+# l'ensemble des quadrats (les quadrats ou le taxon est absent comptent
+# pour 0, comme pour un recouvrement LIT/LIT classique)
+Recouvrement_macroalgues_taxon <- MACROALGUES %>%
+  filter(Taxon != "Aucune algue (quadrat vide)") %>%
+  group_by(Programme, Station, Date, Annee, Taxon) %>%
+  summarise(Somme_pourcentage = sum(Pourcentage_mid, na.rm = TRUE), .groups = "drop") %>%
+  left_join(
+    Recouvrement_macroalgues_global %>% select(Programme, Station, Date, Annee, n_quadrats),
+    by = c("Programme", "Station", "Date", "Annee")
+  ) %>%
+  mutate(Pourcentage_moyen = round(Somme_pourcentage / n_quadrats, 2)) %>%
+  select(-Somme_pourcentage, -n_quadrats)
+
+cat("\nApercu - Recouvrement_macroalgues_taxon :\n")
+print(Recouvrement_macroalgues_taxon, n = Inf)
+```
+
+
+##1.6_POISSONS
+####Lecture CSV + mise en forme BDD
+```{r}
+POISSONS <- read.csv2("Extractions BD Recif/reefdb-extraction-simple-GCRMN_SBH_POISSONS.csv", 
+                      header = TRUE, sep = ";", quote = "\"", dec = ",", fill = TRUE, comment.char = "", fileEncoding = "UTF-8")
+
+# Detection robuste du nom exact de la colonne "longueur individuelle du
+# poisson" : selon les extractions ReefDB, read.csv2() peut convertir les
+# tirets "-" du nom brut en points "." de facon variable, donc le nom
+# exact ('REPLICAT_Longueur_poisson_cm_Protocole_BELT.Centimetre' ou une
+# variante proche) n'est pas garanti. On le recherche par motif plutot
+# que de l'ecrire en dur, pour eviter que le script casse silencieusement
+# si l'extraction change legerement de format.
+col_longueur_poisson <- names(POISSONS)[
+  grepl("Longueur", names(POISSONS), ignore.case = TRUE) &
+  grepl("poisson", names(POISSONS), ignore.case = TRUE)
+][1]
+
+if (is.na(col_longueur_poisson)) {
+  warning("Colonne de longueur individuelle des poissons introuvable dans l'extraction ",
+          "- Taille_moyenne_cm ne sera pas completee pour les poissons mesures individuellement ",
+          "(hors classes de taille standard).")
+  col_longueur_poisson <- character(0)  # any_of() attend un vecteur vide, pas NA, quand rien a selectionner
+}
+
+# Convertir la colonne Date en type de données Date
+POISSONS$Date <- as.Date(POISSONS$Date, format = "%d/%m/%Y")
+
+POISSONS<- POISSONS%>%
+mutate(Annee = format(Date, "%Y"))
+
+#Selection des colonnes utiles
+POISSONS=select(POISSONS, 'Programme','Station','Date', 'Annee','REPLICAT_Numero','Taxon',
+                  'REPLICAT_Abondance_Protocole_BELT_._transects_georeferences_._suivi_exhaustif','REPLICAT_Classe_de_taille_poissons_Protocole_BELT_recifs_._suivi_exhaustif',
+                  any_of(col_longueur_poisson),
+                  'REPLICAT_Largeur_obs.Metre', 'REPLICAT_Longueur_transect_metre_ruban.Metre',
+                  'OBSERVATION_Profondeur.Metre')
+
+# Renomer les colonnes 
+POISSONS <- POISSONS %>%
+	rename(Replicat = REPLICAT_Numero,
+				 Abondance = `REPLICAT_Abondance_Protocole_BELT_._transects_georeferences_._suivi_exhaustif`,
+				 Taille_classe = `REPLICAT_Classe_de_taille_poissons_Protocole_BELT_recifs_._suivi_exhaustif`,
+				 Largeur_transect_poisson_m = `REPLICAT_Largeur_obs.Metre`,
+				 Longueur_transect_poisson_m = `REPLICAT_Longueur_transect_metre_ruban.Metre`,
+				 Profondeur = `OBSERVATION_Profondeur.Metre`)
+
+# Surface reellement echantillonnee par Station x Annee x Replicat,
+# extraite ici (avant les group_by/complete plus bas qui pourraient la
+# perdre) pour un usage fiable dans les indicateurs par surface (densite,
+# biomasse/ha) plus loin dans l'analyse.
+# NB : ces dimensions ne sont pas toujours renseignees selon l'annee de
+# l'extraction (ex. absentes en 2022, presentes en 2026 sur ce jeu de
+# donnees) - quand elles manquent, on reprend la dimension standard du
+# protocole trouvee ailleurs dans le jeu de donnees plutot que de laisser
+# une surface inconnue (qui donnerait une densite infinie).
+DIMENSIONS_TRANSECT_POISSON_PAR_DEFAUT <- POISSONS %>%
+  filter(!is.na(Largeur_transect_poisson_m), !is.na(Longueur_transect_poisson_m)) %>%
+  distinct(Largeur_transect_poisson_m, Longueur_transect_poisson_m) %>%
+  slice(1)
+
+if (nrow(DIMENSIONS_TRANSECT_POISSON_PAR_DEFAUT) == 0) {
+  warning("Aucune dimension de transect poisson (largeur/longueur) trouvee dans l'extraction ",
+          "- densite_m2 et Biomasse_gr_m2 seront NA pour tous les poissons.")
+} else if (any(is.na(POISSONS$Largeur_transect_poisson_m) | is.na(POISSONS$Longueur_transect_poisson_m))) {
+  warning("Dimensions de transect poisson manquantes pour certaines annees/stations ",
+          "- remplacees par la dimension standard trouvee ailleurs dans l'extraction (",
+          DIMENSIONS_TRANSECT_POISSON_PAR_DEFAUT$Largeur_transect_poisson_m, " x ",
+          DIMENSIONS_TRANSECT_POISSON_PAR_DEFAUT$Longueur_transect_poisson_m, " m).")
+}
+
+POISSONS <- POISSONS %>%
+  mutate(
+    Largeur_transect_poisson_m = ifelse(is.na(Largeur_transect_poisson_m),
+                                         DIMENSIONS_TRANSECT_POISSON_PAR_DEFAUT$Largeur_transect_poisson_m[1],
+                                         Largeur_transect_poisson_m),
+    Longueur_transect_poisson_m = ifelse(is.na(Longueur_transect_poisson_m),
+                                          DIMENSIONS_TRANSECT_POISSON_PAR_DEFAUT$Longueur_transect_poisson_m[1],
+                                          Longueur_transect_poisson_m)
+  )
+
+Surface_replicats_poissons <- POISSONS %>%
+  distinct(Station, Annee, Replicat, Largeur_transect_poisson_m, Longueur_transect_poisson_m) %>%
+  mutate(Surface_replicat_m2 = Largeur_transect_poisson_m * Longueur_transect_poisson_m)
+
+
+Liste_Poissons_biometrie <- read.xlsx(
+  xlsxFile = "BD Excel/Liste_147_Poissons.xlsx",
+  na.strings = "#N/A"  # Spécification des valeurs manquantes
+)
+
+# Le fichier contient 3 taxons dupliques (une ligne complete + une ligne
+# incomplete avec Niveau_trophique/Source = #N/A) - un left_join sur un
+# Taxon duplique multiplie les lignes de POISSONS correspondantes,
+# doublant artificiellement leur abondance. On ne garde qu'une ligne par
+# Taxon, en priorisant celle qui a un Niveau_trophique renseigne.
+n_avant_dedoublonnage <- nrow(Liste_Poissons_biometrie)
+Liste_Poissons_biometrie <- Liste_Poissons_biometrie %>%
+  arrange(Taxon, is.na(Niveau_trophique)) %>%
+  distinct(Taxon, .keep_all = TRUE)
+if (nrow(Liste_Poissons_biometrie) != n_avant_dedoublonnage) {
+  warning(n_avant_dedoublonnage - nrow(Liste_Poissons_biometrie),
+          " doublon(s) de Taxon retire(s) de Liste_147_Poissons.xlsx.")
+}
+
+Liste_Poissons_biometrie$Niveau_trophique <- as.numeric(Liste_Poissons_biometrie$Niveau_trophique)
+
+
+#joindre Liste_Poissons_biometrie à POISSONS
+POISSONS<- POISSONS %>%
+  left_join(Liste_Poissons_biometrie, by = "Taxon")
+
+#ajout colonne Taille_moyenne_cm  sur base de REPLICAT_Classe_de_taille_poissons_Protocole_BELT_recifs_._suivi_exhaustif
+# Créez une fonction pour la logique de transformation
+function_taillePOISSONS <- function(REPLICAT_Classe_de_taille_poissons_Protocole_BELT_recifs_._suivi_exhaustif) {
+  if (grepl("< 5 cm", REPLICAT_Classe_de_taille_poissons_Protocole_BELT_recifs_._suivi_exhaustif)) {
+    return("2.5")
+  } else if (grepl("5 - 10 cm", REPLICAT_Classe_de_taille_poissons_Protocole_BELT_recifs_._suivi_exhaustif)) {
+    return("7.5")
+  } else if (grepl("10 - 20 cm", REPLICAT_Classe_de_taille_poissons_Protocole_BELT_recifs_._suivi_exhaustif)) {
+    return("15")
+  } else if (grepl("10 - 20 cm", REPLICAT_Classe_de_taille_poissons_Protocole_BELT_recifs_._suivi_exhaustif)) {
+    return("15")
+  } else if (grepl("20 - 30 cm", REPLICAT_Classe_de_taille_poissons_Protocole_BELT_recifs_._suivi_exhaustif)) {
+    return("25")
+  } else if (grepl("30 - 40 cm", REPLICAT_Classe_de_taille_poissons_Protocole_BELT_recifs_._suivi_exhaustif)) {
+    return("35")
+  } else if (grepl("> 40 cm", REPLICAT_Classe_de_taille_poissons_Protocole_BELT_recifs_._suivi_exhaustif)) {
+    return("40")
+  } else {
+    return("")
+  }
+}
+
+# Appliquez la fonction avec mutate
+POISSONS <- POISSONS %>%
+  mutate(Taille_moyenne_cm = sapply(Taille_classe, function_taillePOISSONS))
+
+#completer les cases vides de la colonne Taille_moyenne_cm avec les valeurs de longueur individuelle (colonne detectee plus haut, cf. col_longueur_poisson)
+if (length(col_longueur_poisson) == 1 && col_longueur_poisson %in% names(POISSONS)) {
+  POISSONS$Taille_moyenne_cm <- ifelse(POISSONS$Taille_moyenne_cm == "", POISSONS[[col_longueur_poisson]], POISSONS$Taille_moyenne_cm)
+}
+
+POISSONS$Taille_moyenne_cm <- as.numeric(POISSONS$Taille_moyenne_cm)
+
+#Calculer Abondance (ind) Densité (ind/m²) et Biomasse total(gr) Biomasse gr/m²
+# NB : la surface reellement observee par replicat (Largeur x Longueur,
+# cf. colonnes REPLICAT_Largeur_obs / REPLICAT_Longueur_transect) est
+# utilisee ici plutot qu'une surface fixe de 50 m². Sur cette extraction,
+# la surface reelle est 2 x 150 = 300 m² par replicat (600 m² au total
+# pour 2 replicats), pas 50 m² - une valeur fixe aurait fausse toutes les
+# densites/biomasses par un facteur ~6.
+  POISSONS <- POISSONS %>%
+  mutate(Surface_transect_poisson_m2 = Largeur_transect_poisson_m * Longueur_transect_poisson_m,
+         densite_m2 = Abondance / Surface_transect_poisson_m2,
+Biomasse_gr = Abondance * (a * Taille_moyenne_cm^b),
+  Biomasse_gr_m2 = densite_m2 * (a * Taille_moyenne_cm^b),
+  Biomasse_kg = Abondance * (a * Taille_moyenne_cm^b)/1000)
+
+#Tous les descripteurs ont été calculé avant on peut désormais regrouper par Replicat
+POISSONS <- POISSONS %>%
+  group_by(Programme, Date, Station, Annee, Replicat, Regime_trophique, Famille, Taxon,a,b,Niveau_trophique, Surface_transect_poisson_m2) %>%
+  summarise(
+    Abondance = sum(Abondance),
+    densite_m2 = sum(densite_m2),
+    Biomasse_gr = sum(Biomasse_gr, na.rm = TRUE),
+    Biomasse_gr_m2 = sum(Biomasse_gr_m2, na.rm = TRUE),
+    Biomasse_kg = sum(Biomasse_kg, na.rm = TRUE),
+    Taille_moyenne_cm = mean(Taille_moyenne_cm, na.rm = TRUE),  # Calculer la moyenne si la colonne existe
+    .groups = "drop"
+  )
+
+# Créer une base des relations fixes entre Taxon, Famille, et Regime_trophique
+taxon_metadata <- POISSONS %>%
+  select(Programme, Date, Annee, Station, Regime_trophique, Famille, Taxon,a,b,Niveau_trophique) %>%
+  distinct()
+
+# Compléter les données en respectant les relations fixes, sans ajouter de zéros à Taille_moyenne_cm
+# NB : "Replicat = 1:6" supposait des replicats numerotes 1 a 6 - ce
+# n'est pas le cas sur cette extraction (replicats nommes "Transect_1",
+# "Transect_2", etc., et pas forcement au nombre de 6 selon la station).
+# On complete avec les valeurs de Replicat reellement presentes dans les
+# donnees plutot qu'un schema fixe, pour rester valable quel que soit le
+# nombre ou le format des replicats.
+POISSONS <- POISSONS %>%
+  complete(
+    Replicat,
+    nesting(Programme, Date, Annee, Station, Regime_trophique, Famille, Taxon),
+    fill = list(Abondance = 0,
+                densite_m2 = 0,
+       Biomasse_gr = 0,
+    Biomasse_gr_m2 = 0,
+    Biomasse_kg = 0)  # Remplir uniquement pour Abondance
+  )
+
+
+#test du nombre d'observation
+result_POISSONS <- POISSONS %>%
+  mutate(Annee = year(Date)) %>%
+  group_by(Annee, Station) %>%
+  summarise(
+    Nombre_de_lignes = n(),
+    .groups = "drop"
+  )
+
+
+dir.create("Historique de bancarisation", showWarnings = FALSE)
+write_xlsx(result_POISSONS, "Historique de bancarisation/result_POISSONS.xlsx")
+
+
+```
+
+####REPLICAT_Regime_trophique_POISSONS
+```{r}
+# Calculer les résumés pour chaque combinaison de Date, Station, Replicat et Regime_trophique
+REPLICAT_Regime_trophique_POISSONS <- POISSONS %>%
+  group_by(Programme, Date, Station, Annee, Replicat, Regime_trophique) %>%
+  summarise(
+    Abondance_totale = round(sum(Abondance)), #6*50m² = 300m2
+    Biomasse_totale = round(sum(Biomasse_gr, na.rm = TRUE)), #6*50m² = 300m2
+    Densite_m2 = sum(densite_m2), 
+    Biomasse_gr_m2 = sum(Biomasse_gr_m2, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  ungroup()
+
+# Rempalce les valeurs vident de Taxon en NA
+REPLICAT_Regime_trophique_POISSONS_ANNEE <- REPLICAT_Regime_trophique_POISSONS %>%            
+filter(Annee == max(Annee, na.rm = TRUE))
+
+REPLICAT_Regime_trophique_POISSONS_EVOLUTION <- REPLICAT_Regime_trophique_POISSONS %>%
+  filter(Annee >= min(Annee, na.rm = TRUE) & Annee <= max(Annee, na.rm = TRUE))
+
+REPLICAT_Regime_trophique_POISSONS_ANNEE_MEAN <- REPLICAT_Regime_trophique_POISSONS_ANNEE %>%
+  group_by(Programme,Date,Annee, Station, Regime_trophique) %>%
+  summarise(
+    Abondance_totale = mean(Abondance_totale, na.rm = TRUE),
+    Biomasse_totale = mean(Biomasse_totale, na.rm = TRUE),
+    Densite_m2 = mean(Densite_m2, na.rm = TRUE),
+    Biomasse_gr_m2 = mean(Biomasse_gr_m2, na.rm = TRUE),
+  )
+
+```
+####REPLICAT_Famille_POISSONS
+```{r}
+# Calculer les résumés pour chaque combinaison de Date, Station, Replicat et Regime_trophique
+REPLICAT_Famille_POISSONS <- POISSONS %>%
+  group_by(Programme, Date, Station, Annee, Replicat, Famille) %>%
+  summarise(
+     Abondance_totale = round(sum(Abondance)), #6*50m² = 300m2
+    Biomasse_totale = round(sum(Biomasse_gr, na.rm = TRUE)), #6*50m² = 300m2
+    Densite_m2 = sum(densite_m2), 
+    Biomasse_gr_m2 = sum(Biomasse_gr_m2, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  ungroup()
+
+# Rempalce les valeurs vident de Taxon en NA
+REPLICAT_Famille_POISSONS_ANNEE <- REPLICAT_Famille_POISSONS %>%            
+filter(Annee == max(Annee, na.rm = TRUE))
+
+REPLICAT_Famille_POISSONS_EVOLUTION <- REPLICAT_Famille_POISSONS %>%
+  filter(Annee >= min(Annee, na.rm = TRUE) & Annee <= max(Annee, na.rm = TRUE))
+
+REPLICAT_Famille_POISSONS_ANNEE_MEAN <- REPLICAT_Famille_POISSONS_ANNEE %>%
+  group_by(Programme,Date,Annee, Station, Famille) %>%
+  summarise(
+    Abondance_totale = mean(Abondance_totale, na.rm = TRUE),
+    Biomasse_totale = mean(Biomasse_totale, na.rm = TRUE),
+    Densite_m2 = mean(Densite_m2, na.rm = TRUE),
+    Biomasse_gr_m2 = mean(Biomasse_gr_m2, na.rm = TRUE),
+  )
+
+```
+
+####REPLICAT_Taxon_POISSONS
+```{r}
+# Calculer les résumés pour chaque combinaison de Date, Station, Replicat et Regime_trophique
+REPLICAT_Taxon_POISSONS <- POISSONS %>%
+  group_by(Programme,Date, Station,Annee, Replicat, Regime_trophique, Taxon) %>%
+  summarise(
+    Abondance_totale = round(sum(Abondance)), #6*50m² = 300m2
+    Biomasse_totale = round(sum(Biomasse_gr, na.rm = TRUE)), #6*50m² = 300m2
+    Densite_m2 = sum(densite_m2), 
+    Biomasse_gr_m2 = sum(Biomasse_gr_m2, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  ungroup()
+
+# Rempalce les valeurs vident de Taxon en NA
+REPLICAT_Taxon_POISSONS_ANNEE <- REPLICAT_Taxon_POISSONS %>%            
+filter(Annee == max(Annee, na.rm = TRUE))
+
+REPLICAT_Taxon_POISSONS_EVOLUTION <- REPLICAT_Taxon_POISSONS %>%
+  filter(Annee >= min(Annee, na.rm = TRUE) & Annee <= max(Annee, na.rm = TRUE))
+
+
+#densité et biomasse pour grpahs!!!
+REPLICAT_Taxon_POISSONS_ANNEE_MEAN <- POISSONS %>%
+  group_by(Programme,Date,Annee, Station,Regime_trophique, Taxon) %>%
+  summarise(
+   Abondance_totale = round(sum(Abondance)), #6*50m² = 300m2
+    Biomasse_totale = round(sum(Biomasse_gr, na.rm = TRUE)), #6*50m² = 300m2
+    Densite_m2 = mean(densite_m2), 
+    Biomasse_gr_m2 = mean(Biomasse_gr_m2),
+   Densite_100m2 = mean(densite_m2)*100, 
+    Biomasse_gr_100m2 = mean(Biomasse_gr_m2)*100,
+   
+  )
+
+```
+
+
+
+
+#### Tableau COMMUNAUTE en format large pour les calculs des indices écologiques
+```{r}
+POISSONS$Taille_moyenne_cm <- as.numeric(POISSONS$Taille_moyenne_cm)
+POISSONS$Niveau_trophique<- as.numeric(POISSONS$Niveau_trophique)
+# NB : les lignes "de remplissage" ajoutees par complete() plus haut ont
+# Abondance = 0 mais a/b/Taille_moyenne_cm restes NA (non couverts par
+# le fill de complete()) - recalculer Biomasse_kg = Abondance*(a*Taille^b)
+# sans precaution donnerait 0*NA = NA sur CES lignes, ecrasant le zero
+# correctement rempli par complete() et faisant croire a tort qu'un tres
+# grand nombre d'especes n'ont pas de biometrie (alors qu'il s'agit de
+# lignes a abondance nulle). On force donc Biomasse_kg a 0 quand
+# Abondance = 0, quelle que soit la disponibilite de a/b pour ce
+# taxon/replicat precis.
+POISSONS <- POISSONS %>%
+  mutate(Biomasse_kg = ifelse(Abondance == 0, 0, (Abondance * (a * Taille_moyenne_cm^b))/1000))
+
+# NB : on ne retire PLUS les lignes ici juste parce que Biomasse_kg est NA.
+# Biomasse_kg est NA des qu'un Taxon n'a pas de coefficients a/b dans
+# Liste_147_Poissons.xlsx (espece absente ou mal orthographiee
+# dans le referentiel) - supprimer la ligne entiere faisait aussi
+# disparaitre son Abondance de COMMUNAUTE/INDICES_ECO (richesse,
+# diversite) et des indicateurs poissons (1.6bis), de facon incoherente
+# et dependante des especes observees une annee donnee (typiquement,
+# une espece nouvellement observee en 2026 et pas encore dans le
+# referentiel faisait disparaitre TOUTES ses donnees, pas seulement sa
+# biomasse). On garde desormais la ligne ; seule sa biomasse reste NA
+# (ignoree par sum(na.rm = TRUE) plus loin), ce qui est correct puisque
+# la biomasse de cette espece est reellement incalculable sans a/b.
+taxons_sans_biometrie <- POISSONS %>%
+  filter(is.na(Biomasse_kg)) %>%
+  distinct(Taxon) %>%
+  pull(Taxon)
+
+if (length(taxons_sans_biometrie) > 0) {
+  warning("Taxon(s) absent(s) ou incomplet(s) dans Liste_147_Poissons.xlsx ",
+          "(biomasse non calculable pour ces lignes, abondance conservee) : ",
+          paste(taxons_sans_biometrie, collapse = ", "))
+}
+
+
+# Étape 1 : Calculer les abondances agrégées
+COMMUNAUTE <- POISSONS %>%
+  select(Programme,Station, Annee,Replicat, Taxon, Abondance) %>%
+  group_by(Programme,Station, Annee,Replicat, Taxon) %>%
+  summarise(
+    Abondance_toutes_tailles = sum(Abondance, na.rm = TRUE), # Calculer la somme
+    .groups = "drop" # Supprimer le regroupement après summarise
+  ) %>%
+  filter(!is.na(Abondance_toutes_tailles) & Abondance_toutes_tailles > 0) # Supprimer les NA et les 0
+
+# Étape 2 : Définir l'ordre des colonnes basé sur le facteur Taxon
+Taxon_ordre <- levels(as.factor(POISSONS$Taxon)) # Assurez-vous que Taxon est bien un facteur
+
+# Étape 3 : Transformer les données pour les organiser par Taxon
+COMMUNAUTE <- COMMUNAUTE %>%
+  pivot_wider(
+    names_from = Taxon, 
+    values_from = Abondance_toutes_tailles
+  )
+
+# Étape 4 : Remplacer les NA par 0 dans COMMUNAUTE1
+COMMUNAUTE <- COMMUNAUTE %>%
+  mutate(across(everything(), ~replace_na(., 0))) # Remplace NA par 0 dans toutes les colonnes
+
+```
+
+
+#### Indices écologiques avec package vegan : richesse spécifique, diversité, équitabilité
+```{r}
+#avec les replicat
+INDICES_ECO_REP <- COMMUNAUTE %>%
+  group_by(Programme, Station, Annee, Replicat) %>%
+  group_modify(~ {
+    species_data <- .x  # .x contient déjà uniquement les colonnes espèces
+    tibble(
+      Richesse_specifique = specnumber(species_data),
+      Shannon_div_index   = diversity(species_data, index = "shannon"),
+      Pielou_equ_index    = diversity(species_data, index = "shannon") / log(specnumber(species_data))
+    )
+  }) %>%
+  ungroup()
+
+# En moyennenant tout
+# NB : COMMUNAUTE a 4 colonnes de metadonnees (Programme, Station, Annee,
+# Replicat) avant les colonnes d'especes, pas 3 - l'index corrige evite
+# que la colonne Replicat (texte) soit traitee comme une espece.
+INDICES_ECO <- COMMUNAUTE %>%
+	mutate(Richesse_specifique = specnumber(COMMUNAUTE[,-c(1,2,3,4)]),
+				 Shannon_div_index = diversity(COMMUNAUTE[,-c(1,2,3,4)], index="shannon"),
+				 Pielou_equ_index = Shannon_div_index/log(Richesse_specifique)) %>%
+	select(Programme,Station, Annee, Richesse_specifique, Shannon_div_index, Pielou_equ_index)
+```
+
+####Descripteurs generaux (POISSONS)
+```{r}
+# Inspire du script GPMG (analyse ichtyofaune) : descripteurs generaux
+# pondérés par l'abondance (taille, ecart-type), niveau trophique moyen
+# (MTL), et communaute POOLEE par Station x Annee (tous replicats
+# confondus) pour les indices de diversite et les analyses multivariees
+# qui suivent en section 2.
+
+# --- Fonctions ponderees (ecart-type pondere par l'abondance) -----------
+weighted.sd <- function(x, w) {
+  ok <- !is.na(x) & !is.na(w) & w > 0
+  x <- x[ok]; w <- w[ok]
+  if (length(x) < 2) return(NA_real_)
+  m <- weighted.mean(x, w)
+  sqrt(sum(w * (x - m)^2) / sum(w))
+}
+
+# --- Reconstruction de la classe de taille depuis Taille_moyenne_cm -----
+# NB : la colonne texte d'origine (Taille_classe) ne survit pas aux
+# group_by/summarise/complete() plus haut (elle n'est pas une variable de
+# regroupement) - on la reconstruit depuis Taille_moyenne_cm, comme dans
+# le script GPMG (function_reverse_taille_POISSONS).
+POISSONS <- POISSONS %>%
+  mutate(Taille_classe_reconstruite = case_when(
+    is.na(Taille_moyenne_cm)   ~ NA_character_,
+    Taille_moyenne_cm < 5      ~ "< 5 cm",
+    Taille_moyenne_cm < 10     ~ "5 - 10 cm",
+    Taille_moyenne_cm < 20     ~ "10 - 20 cm",
+    Taille_moyenne_cm < 30     ~ "20 - 30 cm",
+    Taille_moyenne_cm < 40     ~ "30 - 40 cm",
+    TRUE                       ~ "> 40 cm"
+  ))
+
+# --- Communaute POOLEE par Station x Annee (tous replicats confondus) ---
+# NB : COMMUNAUTE/INDICES_ECO (section 1.6) sont au niveau du REPLICAT
+# (utiles pour voir la variabilite entre replicats). Les descripteurs
+# generaux de station et les analyses multivariees ci-dessous ont besoin
+# d'une communaute POOLEE (1 ligne = 1 Station x 1 Annee), plus pertinente
+# pour une estimation de richesse/diversite globale de la station.
+COMMUNAUTE_pool <- POISSONS %>%
+  filter(!is.na(Taxon), Taxon != "") %>%
+  group_by(Programme, Station, Annee, Taxon) %>%
+  summarise(Abondance = sum(Abondance, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = Taxon, values_from = Abondance, values_fill = 0)
+
+meta_pool <- COMMUNAUTE_pool %>% select(Programme, Station, Annee)
+mat_pool  <- COMMUNAUTE_pool %>% select(-Programme, -Station, -Annee)
+
+INDICES_ECO_pool <- meta_pool %>%
+  mutate(
+    Richesse_specifique = specnumber(mat_pool),
+    Shannon_div_index   = diversity(mat_pool, index = "shannon"),
+    Pielou_equ_index    = round(Shannon_div_index / log(Richesse_specifique), 3)
+  ) %>%
+  mutate(Annee = as.numeric(as.character(Annee)))
+
+cat("\nApercu - INDICES_ECO_pool (richesse/diversite par Station x Annee) :\n")
+print(INDICES_ECO_pool)
+
+# --- Descripteurs generaux par Station x Annee (extraction) -------------
+# MTL (Mean Trophic Level) = niveau trophique moyen pondere par la
+# biomasse : informe sur la presence de grands predateurs / l'exploitation
+# par la peche (les pecheries ciblent d'abord les hauts niveaux trophiques,
+# MTL en baisse dans le temps = signe de pression de peche croissante).
+# NB : les quelques taxons sans coefficients a/b (cf. avertissement plus
+# haut) sont exclus du calcul du MTL faute de biomasse calculable.
+Description_POISSONS_Station <- POISSONS %>%
+  group_by(Programme, Station, Annee) %>%
+  summarise(
+    Abondance_totale   = sum(Abondance, na.rm = TRUE),
+    Biomasse_totale_kg = sum(Biomasse_kg, na.rm = TRUE),
+    Taille_moyenne      = weighted.mean(Taille_moyenne_cm, w = Abondance, na.rm = TRUE),
+    Taille_sd           = weighted.sd(Taille_moyenne_cm, Abondance),
+    MTL                = sum(Biomasse_kg * Niveau_trophique, na.rm = TRUE) / sum(Biomasse_kg, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(Annee = as.numeric(as.character(Annee))) %>%
+  left_join(INDICES_ECO_pool, by = c("Programme", "Station", "Annee"))
+
+cat("\nApercu - Description_POISSONS_Station :\n")
+print(Description_POISSONS_Station)
+
+# --- Structure de taille (% d'abondance par classe) ----------------------
+Taille_POISSONS_moderne <- POISSONS %>%
+  filter(Abondance > 0, !is.na(Taille_classe_reconstruite)) %>%
+  group_by(Programme, Station, Annee, Taille_classe_reconstruite) %>%
+  summarise(Abondance_totale = sum(Abondance, na.rm = TRUE), .groups = "drop") %>%
+  rename(Taille_classe = Taille_classe_reconstruite) %>%
+  group_by(Programme, Station, Annee) %>%
+  mutate(Abondance_pourcent = round(100 * Abondance_totale / sum(Abondance_totale), 1)) %>%
+  ungroup() %>%
+  mutate(Annee = as.numeric(as.character(Annee)))
+
+cat("\nApercu - Taille_POISSONS_moderne :\n")
+print(Taille_POISSONS_moderne, n = Inf)
+```
+
+
+####Integration donnees historiques (POISSONS)
+```{r}
+# Rapport Bouchon & Bouchon-Navaro 2024 (meme classeur que pour le
+# benthos, feuilles "Poissons_indicateurs" et "Poissons_trophique") -
+# Baleine de Pain de Sucre uniquement, 2018/2020/2023/2024.
+# Construit BDD_evolution_poissons (indicateurs globaux, extraction +
+# historique) et Trophique_historique (structure trophique, historique
+# seul - cf. note sur la non-fusion avec Regime_trophique ci-dessous).
+
+FICHIER_BOUCHON_POISSONS <- "BD Excel/Data_Bouchon/Rapport_Bouchon_2024_donnees.xlsx"
+
+BDD_evolution_poissons <- NULL
+Trophique_historique <- NULL
+
+if (file.exists(FICHIER_BOUCHON_POISSONS)) {
+
+  # dates approximatives (memes campagnes que pour le benthos, cf. 1.7)
+  dates_bouchon_poissons <- tibble::tibble(
+    Annee = c(2018, 2020, 2023, 2024),
+    Date  = as.Date(c("2018-12-01", "2020-01-01", "2023-03-01", "2024-11-01"))
+  )
+
+  ## -- Indicateurs globaux (Tableau 5 du rapport) -----------------------
+  Poissons_indicateurs_brut <- read_excel(FICHIER_BOUCHON_POISSONS, sheet = "Poissons_indicateurs", skip = 3)
+
+  Poissons_indicateurs_historique <- Poissons_indicateurs_brut %>%
+    slice(1:5) %>%  # les 5 indicateurs ; le reste de la feuille est une
+                    # note de bas de page du rapport (incoherence signalee
+                    # par les auteurs eux-memes entre tableau et texte),
+                    # pas des donnees a integrer
+    mutate(
+      Indicateur = case_when(
+        str_detect(Indicateur, regex("Richesse", ignore_case = TRUE)) ~ "Richesse_specifique",
+        str_detect(Indicateur, regex("Effectifs totaux", ignore_case = TRUE)) ~ "Effectifs_600m2",
+        str_detect(Indicateur, regex("Biomasse totale", ignore_case = TRUE)) ~ "Biomasse_kg_ha",
+        str_detect(Indicateur, regex("esp.ces comportant des juv.niles", ignore_case = TRUE)) ~ "Nb_especes_juveniles",
+        str_detect(Indicateur, regex("juv.niles", ignore_case = TRUE)) ~ "Effectifs_juveniles",
+        TRUE ~ NA_character_
+      )
+    ) %>%
+    filter(!is.na(Indicateur)) %>%
+    pivot_longer(-Indicateur, names_to = "Annee_brute", values_to = "Valeur") %>%
+    mutate(
+      Annee = as.numeric(str_extract(Annee_brute, "\\d{4}"))
+    ) %>%
+    select(Indicateur, Annee, Valeur) %>%
+    pivot_wider(names_from = Indicateur, values_from = Valeur) %>%
+    left_join(dates_bouchon_poissons, by = "Annee") %>%
+    mutate(
+      Station = "Baleine de Pain de Sucre",
+      # conversion sur une base comparable (100 m²) a la densite moderne,
+      # calculee plus bas a partir de l'extraction (le rapport donne un
+      # total sur 600 m², cf. Lisez-moi du classeur)
+      Densite_100m2 = round(Effectifs_600m2 / 6, 1),
+      Pct_juveniles = round(100 * Effectifs_juveniles / Effectifs_600m2, 1),
+      Source = "Rapport_Bouchon_2024"
+    ) %>%
+    select(Station, Date, Annee, Richesse_specifique, Densite_100m2,
+           Biomasse_kg_ha, Nb_especes_juveniles, Pct_juveniles, Source)
+
+  # Equivalent moderne : on regroupe (pool) tous les replicats par
+  # Station x Annee - la richesse specifique notamment n'a de sens que
+  # comme decompte total, pas comme moyenne des richesses par replicat.
+  # Surface totale = somme des surfaces reelles des replicats presents
+  # (cf. Surface_replicats_poissons, calculee juste apres la lecture du
+  # CSV, plutot qu'une valeur fixe qui ne correspondrait pas forcement
+  # aux dimensions reelles du transect pour cette station/ce protocole).
+  Surface_totale_poissons <- Surface_replicats_poissons %>%
+    group_by(Station, Annee) %>%
+    summarise(Surface_totale_m2 = sum(Surface_replicat_m2, na.rm = TRUE), .groups = "drop") %>%
+    mutate(Annee = as.numeric(Annee))
+
+  Poissons_indicateurs_modernes <- POISSONS %>%
+    group_by(Programme, Station, Annee) %>%
+    summarise(
+      Effectifs_totaux  = sum(Abondance, na.rm = TRUE),
+      Biomasse_totale_kg = sum(Biomasse_kg, na.rm = TRUE),
+      Richesse_specifique = n_distinct(Taxon[Abondance > 0]),
+      Effectifs_juveniles = sum(Abondance[!is.na(Taille_moyenne_cm) & Taille_moyenne_cm < 5], na.rm = TRUE),
+      Nb_especes_juveniles = n_distinct(Taxon[!is.na(Taille_moyenne_cm) & Taille_moyenne_cm < 5 & Abondance > 0]),
+      .groups = "drop"
+    ) %>%
+    mutate(Annee = as.numeric(Annee)) %>%
+    left_join(Surface_totale_poissons, by = c("Station", "Annee")) %>%
+    mutate(
+      Date  = as.Date(paste0(Annee, "-01-01")),  # date de l'extraction non disponible ici ; cf. POISSONS$Date si besoin d'une date exacte
+      Densite_100m2 = round(100 * Effectifs_totaux / Surface_totale_m2, 1),
+      Biomasse_kg_ha = round(10000 * Biomasse_totale_kg / Surface_totale_m2, 1),
+      Pct_juveniles = round(100 * Effectifs_juveniles / Effectifs_totaux, 1),
+      Source = "Extraction_ReefDB_BELT"
+    ) %>%
+    select(Station, Date, Annee, Richesse_specifique, Densite_100m2,
+           Biomasse_kg_ha, Nb_especes_juveniles, Pct_juveniles, Source)
+
+  BDD_evolution_poissons <- bind_rows(Poissons_indicateurs_historique, Poissons_indicateurs_modernes) %>%
+    arrange(Station, Annee)
+
+  cat("\nApercu - indicateurs poissons combines :\n")
+  print(BDD_evolution_poissons, n = Inf)
+
+  ## -- Structure trophique historique (Tableau 6) -----------------------
+  # Les categories du referentiel Liste_147_Poissons.xlsx (Herbivore,
+  # Omnivore, Planctonophage, Carnivore1, Carnivore2, Piscivore) ont ete
+  # verifiees identiques a celles du rapport (He/Om/Pl/C1/C2/Pi) - fusion
+  # avec les donnees d'extraction (2022/2026, les 2 stations) possible.
+  Poissons_trophique_brut <- read_excel(FICHIER_BOUCHON_POISSONS, sheet = "Poissons_trophique", skip = 3)
+
+  Trophique_historique <- Poissons_trophique_brut %>%
+    fill(Paramètre, .direction = "down") %>%
+    rename(Annee = Année) %>%
+    select(-`Total (contrôle)`) %>%
+    pivot_longer(cols = c(`He (%)`, `Om (%)`, `Pl (%)`, `C1 (%)`, `C2 (%)`, `Pi (%)`),
+                 names_to = "Groupe_trophique", values_to = "Pourcentage") %>%
+    mutate(
+      Groupe_trophique = str_remove(Groupe_trophique, " \\(%\\)"),
+      Groupe_trophique = factor(Groupe_trophique, levels = c("He", "Om", "Pl", "C1", "C2", "Pi")),
+      Station = "Baleine de Pain de Sucre",
+      Source = "Rapport_Bouchon_2024"
+    )
+
+  # Equivalent moderne : composition (%) par groupe trophique, calculee
+  # sur les 3 memes parametres a partir de l'extraction ReefDB (POISSONS,
+  # apres correction des lignes de remplissage - cf. section 1.6).
+  Trophique_moderne <- POISSONS %>%
+    group_by(Programme, Station, Annee, Regime_trophique) %>%
+    summarise(
+      `Richesse spécifique` = n_distinct(Taxon[Abondance > 0]),
+      Effectifs = sum(Abondance, na.rm = TRUE),
+      Biomasse  = sum(Biomasse_kg, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    group_by(Programme, Station, Annee) %>%
+    mutate(across(c(`Richesse spécifique`, Effectifs, Biomasse),
+                   ~ round(100 * . / sum(.), 1))) %>%
+    ungroup() %>%
+    pivot_longer(cols = c(`Richesse spécifique`, Effectifs, Biomasse),
+                 names_to = "Paramètre", values_to = "Pourcentage") %>%
+    mutate(
+      Groupe_trophique = case_when(
+        Regime_trophique == "Herbivore"      ~ "He",
+        Regime_trophique == "Omnivore"       ~ "Om",
+        Regime_trophique == "Planctonophage" ~ "Pl",
+        Regime_trophique == "Carnivore1"     ~ "C1",
+        Regime_trophique == "Carnivore2"     ~ "C2",
+        Regime_trophique == "Piscivore"      ~ "Pi",
+        TRUE ~ NA_character_
+      ),
+      Groupe_trophique = factor(Groupe_trophique, levels = c("He", "Om", "Pl", "C1", "C2", "Pi")),
+      Annee = as.numeric(Annee),
+      Source = "Extraction_ReefDB_BELT"
+    ) %>%
+    filter(!is.na(Groupe_trophique)) %>%
+    select(Station, Annee, Paramètre, Groupe_trophique, Pourcentage, Source)
+
+  Trophique_historique <- bind_rows(
+    Trophique_historique %>% select(Station, Annee, Paramètre, Groupe_trophique, Pourcentage, Source),
+    Trophique_moderne
+  ) %>%
+    arrange(Station, Annee)
+
+  cat("\nApercu - structure trophique historique + extraction :\n")
+  print(Trophique_historique, n = Inf)
+
+} else {
+  warning("Fichier '", FICHIER_BOUCHON_POISSONS, "' introuvable - historique poissons non integre.")
+}
+
+```
+
+
+####Integration donnees historiques (BENTHOS)
+```{r}
+# Deux classeurs externes apportent de la profondeur temporelle a
+# l'extraction ReefDB (qui ne couvre que 2022 et 2026) :
+#   - le fichier ATE : serie 2002-2022, indicateurs globaux (% corail,
+#     % macroalgues, recrues/m2) pour les 2 stations ;
+#   - le rapport Bouchon & Bouchon-Navaro 2024 : Baleine de Pain de Sucre
+#     uniquement, 2018/2020/2023/2024, avec en plus le detail complet de
+#     la composition benthique et le recrutement corallien par espece.
+# Cette section produit aussi les tables au format attendu par l'export
+# final (2.1.3) : BENTHOS_LIT_ANNEE, BENTHOS_LIT_EVOLUTION,
+# Recouvrement_benthos_complet, Detail_couverture_vivante_complet,
+# Composition_moyenne_substrat_complet_filtre, Taxons_coralliens,
+# Proportion_blanchissement_complet, Evolution_recouvrement_benthos,
+# Indicateur_benthos, Indicateur_macroalgue, Taxons_algaux.
+
+FICHIER_HISTORIQUE <- "BD Excel/Data_Bouchon/250975_ATE_GCRMN_EVOL_BENTHOS_C_BOUCHON.xlsx"
+
+# Valeurs par defaut si les fichiers externes sont introuvables : les
+# graphiques et exports retombent alors sur les seules donnees d'extraction
+Recouvrement_detail_historique <- Recouvrement_detail_annee %>%
+  mutate(Source = "Extraction_ReefDB_LIT")
+Taxons_coralliens_historique <- Taxons_coralliens_annee %>%
+  mutate(Source = "Extraction_ReefDB_LIT")
+BDD_evolution_benthos <- NULL
+
+if (file.exists(FICHIER_HISTORIQUE)) {
+
+  Historique_brut <- read_excel(FICHIER_HISTORIQUE, sheet = "DATA_2022", skip = 1)
+
+  # Harmonisation des noms de site avec ceux de l'extraction ReefDB
+  Historique <- Historique_brut %>%
+    rename(
+      Recouvrement_corallien_pct  = `% Recouvrement corallien`,
+      Recouvrement_macroalgues_pct = `% Recouvrement en macroalgues`,
+      Recrues_m2                   = `Recrues/m²`
+    ) %>%
+    mutate(
+      Station = case_when(
+        str_detect(Site, "Baleine") ~ "Baleine de Pain de Sucre",
+        str_detect(Site, "Coco")    ~ "Ilet Coco",
+        TRUE ~ Site
+      ),
+      Date  = as.Date(Date),
+      Annee = year(Date),
+      Source = "Historique_ATE",
+      # Conversion explicite en numerique : si une cellule du fichier
+      # Excel contient du texte (note, tiret, cellule fusionnee...), la
+      # colonne entiere est lue en texte par read_excel() et bind_rows()
+      # plante plus loin en melangeant caractere et numerique. On force
+      # le type ici, quel que soit ce que read_excel() a devine ; toute
+      # valeur non convertible devient NA plutot que de bloquer le script.
+      Recouvrement_corallien_pct   = suppressWarnings(as.numeric(Recouvrement_corallien_pct)),
+      Recouvrement_macroalgues_pct = suppressWarnings(as.numeric(Recouvrement_macroalgues_pct)),
+      Recrues_m2                   = suppressWarnings(as.numeric(Recrues_m2))
+    ) %>%
+    select(Station, Date, Annee, Recouvrement_corallien_pct,
+           Recouvrement_macroalgues_pct, Recrues_m2, Source)
+
+  # Alerte explicite si la conversion a introduit des NA la ou le fichier
+  # source avait une valeur (permet de reperer la cellule fautive dans
+  # Historique_brut plutot que de la decouvrir plus tard, silencieusement)
+  lignes_non_convertibles <- Historique_brut %>%
+    mutate(.ligne = row_number()) %>%
+    filter(
+      (!is.na(`% Recouvrement corallien`) & is.na(suppressWarnings(as.numeric(`% Recouvrement corallien`)))) |
+      (!is.na(`% Recouvrement en macroalgues`) & is.na(suppressWarnings(as.numeric(`% Recouvrement en macroalgues`)))) |
+      (!is.na(`Recrues/m²`) & is.na(suppressWarnings(as.numeric(`Recrues/m²`))))
+    )
+  if (nrow(lignes_non_convertibles) > 0) {
+    warning(nrow(lignes_non_convertibles), " ligne(s) du fichier '", FICHIER_HISTORIQUE,
+            "' (feuille DATA_2022) contiennent une valeur non numerique dans une colonne ",
+            "attendue numerique (corail/macroalgues/recrues) - verifier les lignes : ",
+            paste(lignes_non_convertibles$.ligne, collapse = ", "))
+  }
+
+  # Equivalent "moderne" a partir de l'extraction ReefDB LIT-BENTHOS :
+  #  - Recouvrement corallien  = categorie detaillee "Coraux durs"
+  #  - Recouvrement macroalgues = "Macroalgues molles" (algues dressees
+  #    molles), l'equivalent le plus proche de la notion historique de
+  #    "macroalgues" (qui exclut le turf et les algues calcaires)
+  #  - Recrues/m2 = moyenne des quadrats RECRUES (section 1.3), disponible
+  #    a ce stade puisque cette section est executee avant celle-ci.
+  Recrues_modernes <- RECRUES %>%
+    mutate(Densite_recrues_m2 = REPLICAT_Nombre_de_recrues_coralliennes_Protocole_Quadrat * 2) %>%
+    group_by(Station, Annee) %>%
+    summarise(Recrues_m2 = round(mean(Densite_recrues_m2, na.rm = TRUE), 2), .groups = "drop") %>%
+    mutate(Annee = as.numeric(as.character(Annee)))
+
+  Extraction_recente <- Recouvrement_detail_annee %>%
+    filter(Categorie_detail %in% c("Coraux durs", "Macroalgues molles")) %>%
+    select(Station, Date, Annee, Categorie_detail, Pourcentage_moyen) %>%
+    pivot_wider(names_from = Categorie_detail, values_from = Pourcentage_moyen) %>%
+    rename(
+      Recouvrement_corallien_pct   = `Coraux durs`,
+      Recouvrement_macroalgues_pct = `Macroalgues molles`
+    ) %>%
+    left_join(Recrues_modernes, by = c("Station", "Annee")) %>%
+    mutate(Source = "Extraction_ReefDB_LIT") %>%
+    select(Station, Date, Annee, Recouvrement_corallien_pct,
+           Recouvrement_macroalgues_pct, Recrues_m2, Source)
+
+  BDD_evolution_benthos <- bind_rows(Historique, Extraction_recente) %>%
+    arrange(Station, Date)
+
+  # --- Deuxieme source historique : rapport Bouchon & Bouchon-Navaro 2024 -
+  # Suppose range dans le meme dossier que le fichier ATE ; ajuster si besoin.
+  FICHIER_BOUCHON_2024 <- file.path(dirname(FICHIER_HISTORIQUE), "Rapport_Bouchon_2024_donnees.xlsx")
+
+  if (file.exists(FICHIER_BOUCHON_2024)) {
+
+    Benthos_bouchon_brut <- read_excel(FICHIER_BOUCHON_2024, sheet = "Benthos_couverture_%", skip = 3)
+    Recrutement_bouchon_brut <- read_excel(FICHIER_BOUCHON_2024, sheet = "Coraux_recrutement", skip = 3)
+
+    # dates approximatives communes a toute la section (mois de la
+    # campagne poissons du meme rapport ; aucune date exacte n'est donnee
+    # pour le benthos/recrutement dans le rapport)
+    dates_bouchon <- tibble::tibble(
+      Annee = c(2018, 2020, 2023, 2024),
+      Date  = as.Date(c("2018-12-01", "2020-01-01", "2023-03-01", "2024-11-01"))
+    )
+
+    ## Indicateurs globaux (corail / macroalgues / recrues) ----------------
+    # % corail = colonne "Coraux" ; % macroalgues = "Pheophycees (macroalgues
+    # brunes)" specifiquement (le gazon algal et les melobesiees sont
+    # comptes a part dans ce rapport, ce ne sont pas des "macroalgues" au
+    # sens de l'indicateur historique) - verifie coherent avec le fichier
+    # ATE sur l'annee commune 2018 (16,5% corail / 8,8% macroalgues dans
+    # les deux sources, valeurs identiques).
+    Benthos_bouchon <- Benthos_bouchon_brut %>%
+      select(Annee = Année, Recouvrement_corallien_pct = Coraux,
+             Recouvrement_macroalgues_pct = `Phéophycées (macroalgues brunes)`) %>%
+      mutate(
+        Annee = suppressWarnings(as.numeric(Annee)),
+        # meme precaution que pour le fichier ATE : forcer le type
+        # numerique au cas ou une cellule non numerique ferait basculer
+        # la colonne entiere en texte lors de la lecture Excel.
+        Recouvrement_corallien_pct   = suppressWarnings(as.numeric(Recouvrement_corallien_pct)),
+        Recouvrement_macroalgues_pct = suppressWarnings(as.numeric(Recouvrement_macroalgues_pct))
+      ) %>%
+      filter(!is.na(Annee))
+
+    # Recrues/m2 = nombre total de juveniles coralliens / 30 m² (meme
+    # definition que la colonne Recrues_m2 du fichier ATE, confirme par
+    # la valeur identique 2,9 recrues/m2 en 2018 dans les deux sources)
+    Recrues_bouchon <- Recrutement_bouchon_brut %>%
+      filter(Espèce == "Nb. total de juvéniles") %>%
+      select(-Espèce) %>%
+      pivot_longer(everything(), names_to = "Annee", values_to = "Nb_juveniles") %>%
+      mutate(Annee = suppressWarnings(as.numeric(Annee)), Recrues_m2 = round(Nb_juveniles / 30, 2)) %>%
+      filter(!is.na(Annee)) %>%
+      select(Annee, Recrues_m2)
+
+    Bouchon_2024 <- Benthos_bouchon %>%
+      left_join(Recrues_bouchon, by = "Annee") %>%
+      left_join(dates_bouchon, by = "Annee") %>%
+      mutate(Station = "Baleine de Pain de Sucre", Source = "Rapport_Bouchon_2024") %>%
+      # 2018 est un doublon EXACT du fichier ATE (memes valeurs, tres
+      # probablement la meme source d'origine) - on ne le reintroduit pas
+      filter(Annee != 2018) %>%
+      select(Station, Date, Annee, Recouvrement_corallien_pct,
+             Recouvrement_macroalgues_pct, Recrues_m2, Source)
+
+    BDD_evolution_benthos <- bind_rows(BDD_evolution_benthos, Bouchon_2024) %>%
+      arrange(Station, Date)
+
+    ## Composition detaillee historique (alimente 1.2 / Recouvrement_benthos_complet)
+    # Correspondance entre les intitules du rapport Bouchon et les
+    # categories deja utilisees dans Categorie_detail (cf. 1.1) :
+    #   Gazon algal                              -> Turf algal
+    #   Coraux                                   -> Coraux durs
+    #   Melobesiees (Corallinacees encroutantes)  -> Algues calcaires encroutantes
+    #   Pheophycees (macroalgues brunes)         -> Macroalgues molles
+    #   Gorgones                                 -> Gorgones
+    #   Spongiaires                              -> Eponges
+    #   Cyanobacteries                           -> Cyanophycees
+    #   Tuniciers                                -> pas d'equivalent, exclu
+    #   Sable                                    -> Sable
+    #   Debris coralliens                        -> Debris
+    Composition_bouchon <- Benthos_bouchon_brut %>%
+      rename(Annee = Année) %>%
+      mutate(Annee = suppressWarnings(as.numeric(Annee))) %>%
+      filter(!is.na(Annee)) %>%
+      select(-any_of(c("Total (contrôle)", "Tuniciers"))) %>%
+      pivot_longer(-Annee, names_to = "Categorie_brute_bouchon", values_to = "Pourcentage_moyen") %>%
+      filter(!is.na(Pourcentage_moyen)) %>%
+      mutate(Categorie_detail = case_when(
+        Categorie_brute_bouchon == "Gazon algal" ~ "Turf algal",
+        Categorie_brute_bouchon == "Coraux" ~ "Coraux durs",
+        Categorie_brute_bouchon == "Mélobésiées (Corallinacées encroûtantes)" ~ "Algues calcaires encroutantes",
+        Categorie_brute_bouchon == "Phéophycées (macroalgues brunes)" ~ "Macroalgues molles",
+        Categorie_brute_bouchon == "Gorgones" ~ "Gorgones",
+        Categorie_brute_bouchon == "Spongiaires" ~ "Eponges",
+        Categorie_brute_bouchon == "Cyanobactéries" ~ "Cyanophycées",
+        Categorie_brute_bouchon == "Sable" ~ "Sable",
+        Categorie_brute_bouchon == "Débris coralliens" ~ "Débris",
+        TRUE ~ NA_character_
+      )) %>%
+      filter(!is.na(Categorie_detail)) %>%
+      # meme regroupement de haut niveau que dans la section 1.1, pour
+      # pouvoir alimenter Recouvrement_benthos_complet (niveau LIT) aussi
+      # bien avec les donnees d'extraction qu'avec celles de Bouchon
+      mutate(LIT = case_when(
+        Categorie_detail %in% c("Turf algal",
+                                 "Macroalgues calcaires", "Algues calcaires encroutantes") ~ "Autres algues",
+        Categorie_detail %in% c("Macroalgues molles", "Cyanophycées") ~ "Algues indicatrices d'eutrophisation (NIA)",
+        Categorie_detail %in% c("Eponges", "Gorgones") ~ "Autres invertébrés",
+        Categorie_detail == "Coraux durs" ~ "Coraux durs",
+        Categorie_detail %in% c("Roche", "Sable", "Débris", "Corail mort récent") ~ "Non vivant",
+        TRUE ~ "Non vivant"
+      )) %>%
+      left_join(dates_bouchon, by = "Annee") %>%
+      mutate(Station = "Baleine de Pain de Sucre", Source = "Rapport_Bouchon_2024",
+             Pourcentage_ET = NA_real_, n_replicats = NA_integer_) %>%
+      select(Station, Date, Annee, LIT, Categorie_detail,
+             Pourcentage_moyen, Pourcentage_ET, n_replicats, Source)
+
+    Recouvrement_detail_historique <- bind_rows(
+      Recouvrement_detail_annee %>% mutate(Source = "Extraction_ReefDB_LIT"),
+      Composition_bouchon
+    ) %>%
+      arrange(Station, Date)
+
+    ## Composition du recrutement corallien (alimente 1.4) -----------------
+    # La composition du recrutement (Bouchon, juveniles) est deja une
+    # grandeur RELATIVE (% du nombre total de juveniles cette annee-la,
+    # somme = 100%). Pour rester comparable sur le meme graphique, le
+    # recouvrement issu de l'extraction ReefDB (2022/2026), qui est un %
+    # ABSOLU du transect, est donc lui aussi converti en % RELATIF de
+    # composition (part de chaque espece dans le corail total de l'annee).
+    # Les deux series restent neanmoins deux compartiments biologiques
+    # differents (corail adulte vs recrues juveniles) - cf. sous-titre du
+    # graphique 1.4.
+    Recrutement_composition_bouchon <- Recrutement_bouchon_brut %>%
+      filter(!Espèce %in% c("Nb. total de juvéniles", "Nb. d'espèces ayant recruté")) %>%
+      pivot_longer(-Espèce, names_to = "Annee", values_to = "Nb_juveniles") %>%
+      mutate(Annee = suppressWarnings(as.numeric(Annee))) %>%
+      filter(!is.na(Annee), !is.na(Nb_juveniles)) %>%
+      group_by(Annee) %>%
+      mutate(Pourcentage_moyen = round(100 * Nb_juveniles / sum(Nb_juveniles), 2)) %>%
+      ungroup() %>%
+      rename(Taxon = Espèce) %>%
+      left_join(dates_bouchon, by = "Annee") %>%
+      mutate(Station = "Baleine de Pain de Sucre", Source = "Recrutement_Bouchon_2024",
+             n_replicats = NA_integer_) %>%
+      select(Station, Date, Annee, Taxon, Pourcentage_moyen, n_replicats, Source)
+
+    Taxons_coralliens_relatif <- Taxons_coralliens_annee %>%
+      group_by(Programme, Station, Date, Annee) %>%
+      mutate(Pourcentage_moyen = round(100 * Pourcentage_moyen / sum(Pourcentage_moyen), 2)) %>%
+      ungroup() %>%
+      mutate(Source = "Extraction_ReefDB_LIT")
+
+    Taxons_coralliens_historique <- bind_rows(
+      Taxons_coralliens_relatif,
+      Recrutement_composition_bouchon
+    ) %>%
+      arrange(Station, Date)
+
+  } else {
+    warning("Fichier '", FICHIER_BOUCHON_2024, "' introuvable - donnees Bouchon 2024 non integrees.")
+  }
+
+  cat("\nApercu - base de donnees d'evolution combinee :\n")
+  print(BDD_evolution_benthos, n = Inf)
+
+  # ATTENTION : pour l'annee 2022, les deux sources coexistent avec des
+  # dates et des valeurs differentes (methodologies/longueurs de transect
+  # differentes : 60 m historiquement contre 30 m dans le protocole actuel).
+  # Cet ecart n'a pas ete arbitre automatiquement - les deux lignes sont
+  # conservees telles quelles (Source distincte) pour verification manuelle.
+  doublons_annee <- BDD_evolution_benthos %>%
+    count(Station, Annee) %>%
+    filter(n > 1)
+  if (nrow(doublons_annee) > 0) {
+    cat("\nATTENTION - annees avec plusieurs sources a verifier :\n")
+    print(doublons_annee)
+  }
+
+} else {
+  warning("Fichier historique '", FICHIER_HISTORIQUE, "' introuvable - section 1.7 ignoree ",
+          "(les graphiques et exports n'utiliseront que les donnees d'extraction).")
+}
+
+
+# --- Tables au format attendu par l'export final (2.1.3) -----------------
+# Meme convention que pour POISSONS : suffixe _ANNEE = derniere annee
+# uniquement, _EVOLUTION = toutes les annees.
+BENTHOS_LIT_EVOLUTION <- Recouvrement_detail_replicat
+
+BENTHOS_LIT_ANNEE <- BENTHOS_LIT_EVOLUTION %>%
+  filter(Annee == max(Annee, na.rm = TRUE))
+
+# 1.1 Nature recouvrement (niveau LIT), historique inclus quand disponible
+Recouvrement_benthos_complet <- Recouvrement_detail_historique %>%
+  filter(!is.na(LIT)) %>%
+  group_by(Station, Date, Annee, Source, LIT) %>%
+  summarise(Pourcentage_moyen = round(sum(Pourcentage_moyen), 2), .groups = "drop")
+
+# 1.2 Detail couverture vivante = toutes les categories biologiques
+# (on exclut les categories de substrat abiotique, cf. 1.3)
+CATEGORIES_SUBSTRAT <- c("Roche", "Sable", "Débris", "Corail mort récent")
+Detail_couverture_vivante_complet <- Recouvrement_detail_historique %>%
+  filter(!Categorie_detail %in% CATEGORIES_SUBSTRAT)
+
+# 1.3 Composition du substrat = seulement les categories abiotiques
+Composition_moyenne_substrat_complet_filtre <- Recouvrement_detail_historique %>%
+  filter(Categorie_detail %in% CATEGORIES_SUBSTRAT)
+
+# 1.4 Proportion des taxons coralliens (nom attendu par l'export : "Taxons_coralliens")
+Taxons_coralliens <- Taxons_coralliens_historique
+
+# 1.5 Proportion blanchissement/necrose : % de points dans chaque classe
+# (et non un simple comptage brut) par Station x Annee
+Proportion_blanchissement_complet <- Necrose_classes %>%
+  group_by(Station, Annee) %>%
+  mutate(Proportion_pct = round(100 * n_points / sum(n_points), 2)) %>%
+  ungroup()
+
+# 2.1 (export) Evolution du recouvrement benthique = la serie longue
+# corail/macroalgues/recrues (2002-2026, extraction + historique)
+Evolution_recouvrement_benthos <- BDD_evolution_benthos
+
+# 2.5 Indicateur benthos global = ratio Algues:Corail (indicateur GCRMN
+# classique de phase-shift ; cf. graphique 2.1_Suivi_corail)
+Indicateur_benthos <- Ratio_algues_corail_annee
+
+# 2.6 Indicateur macroalgues = % total d'algues (toutes categories
+# confondues : turf, molles, calcaires, encroutantes) par Station x Annee
+Indicateur_macroalgue <- Recouvrement_detail_historique %>%
+  filter(Categorie_detail %in% c("Turf algal", "Macroalgues molles",
+                                  "Macroalgues calcaires", "Algues calcaires encroutantes")) %>%
+  group_by(Station, Date, Annee, Source) %>%
+  summarise(Pourcentage_algues_total = round(sum(Pourcentage_moyen), 2), .groups = "drop")
+
+# 2.7 Taxons algaux = detail par categorie d'algue (meme filtre que 2.6,
+# mais sans sommer - une ligne par categorie)
+Taxons_algaux <- Recouvrement_detail_historique %>%
+  filter(Categorie_detail %in% c("Turf algal", "Macroalgues molles",
+                                  "Macroalgues calcaires", "Algues calcaires encroutantes",
+                                  "Cyanophycées"))
+```
+
+
+
+#2_ANALYSE DE DONNEES
+#####Palette de Formes
+```{r}
+# Palette de motifs
+Palette_forme_colonisé <- c("Colonisé" = "stripe", "Non colonisé" = "crosshatch")
+```
+
+#####Palette de couleurs
+```{r}
+# Palette nature recouvrement
+Palette_nature_recouvrement <- c("Autres algues" = 'seagreen2',"Algues indicatrices d'eutrophisation (NIA)"= 'seagreen4', "Autres invertébrés" = 'midnightblue',"Zoanthaires" = 'coral', "Coraux durs" = 'lightsalmon1', "Non vivant" = 'lightsteelblue4', "Herbiers"='darkseagreen1')
+
+##Palette couverture vivante
+Palette_couverture_vivante <- c("Autres invertébrés" = 'midnightblue',"Coraux durs" = 'lightsalmon1', "Cyanophycées"='seagreen4', "Eponges"='midnightblue', "Gorgones"='midnightblue', "Herbiers"='darkseagreen1',"Macroalgues calcaires"='seagreen2',"Macroalgues molles"='seagreen4',"Turf algal" = 'seagreen2',"Zoanthaires" = 'coral',"Algues calcaires encroutantes" ='seagreen2')
+                                
+Palette_algues <- c("Turf algal" = 'lightgreen',"Macroalgues rouges calcaires"='red',"Macroalgues molles"='darkgreen',"Macroalgues calcaires"='green', "Algues calcaires encroutantes"='orange')
+
+Palette_couverture_groupe_taxons <- c("Turf algal" = 'darkgreen',"Macroalgues rouges calcaires"='darkgreen',"Macroalgues molles"='darkgreen',"Macroalgues calcaires"='darkgreen', "Hexacoralliaires scléractiniaires" = 'pink',"Hydrocoralliaires" = 'deeppink', "Anémones"='yellow', "Algues calcaires encroutantes"='darkgreen', "Hexacoralliaires zoanthaires"='purple', "Cyanophycées"='orange')
+
+
+#Palette_substrat
+# Créez une palette de couleurs personnalisée
+Palette_substrat <- c("Roche" = 'azure4',
+                      "Corail mort (<1 an)" = 'azure3',
+                      "Débris" = 'azure2',
+                      "Sable" = 'azure1',
+                      "Vase" = 'white')
+
+# Palette complete pour le niveau "Categorie_detail" du benthos LIT
+# (section 1.1/1.7) : contrairement aux palettes ci-dessus, ou plusieurs
+# categories fines partagent une meme teinte car elles sont fondues au
+# niveau LIT, chaque categorie recoit ici une couleur distincte pour
+# rester lisible en vue detaillee (graphique 1.2_Composition_detaillee).
+Palette_categorie_detail <- c(
+  "Coraux durs" = 'lightsalmon1',
+  "Corail mort récent" = 'grey30',
+  "Macroalgues molles" = 'seagreen4',
+  "Turf algal" = 'darkolivegreen3',
+  "Macroalgues calcaires" = 'seagreen3',
+  "Algues calcaires encroutantes" = 'palegreen3',
+  "Cyanophycées" = 'gold3',
+  "Eponges" = 'midnightblue',
+  "Gorgones" = 'slateblue3',
+  "Zoanthaires" = 'coral',
+  "Herbiers" = 'darkseagreen1',
+  "Roche" = 'azure4',
+  "Sable" = 'azure1',
+  "Débris" = 'azure2'
+)
+
+Palette_colonisation <- c("Colonisé" = '#19396B',
+                      "Non colonisé" = 'lightsteelblue4')
+
+Palette_taxons_coralliens <- c(
+  "Acropora cervicornis" = 'lightpink', 
+  "Acropora palmata" = 'lightblue', 
+  "Agaricia agaricites" = 'green3',        
+  "Agaricia lamarcki" = 'green4',
+  "Agaricia humilis" = 'green2',
+  "Agaricia sp." = 'darkgreen',              
+  "Agariciidae" = 'lightgreen', 
+  "Colpophyllia natans" = 'blue1',
+  "Corallimorpharia" = 'purple3',
+  "Dendrogyra cylindrus" = 'yellow4',
+  "Dichocoenia stokesii" = 'chartreuse',  
+  "Dichocoenia" = 'chartreuse',  
+  "Diploria" = '#FF7F00',
+  "Diploria labyrinthiformis" = '#FF7F33', 
+  "Eusmilia fastigiata" = 'yellow3',
+  "Favia fragum" = 'gray',
+  "Helioseris cucullata" = 'mediumseagreen', 
+  "Isophyllia" = 'seagreen', 
+  "Madracis auretenra" = 'yellow', 
+  "Madracis decactis" = 'yellow2',  
+  "Madracis myriaster" = 'yellow2',
+  "Madracis" = 'yellow2',
+  "Meandrina meandrites" = 'gray',   # Changer la couleur
+  "Meandrina" = 'gray',
+  "Meandrina jacksoni" = 'gray',   # Changer la couleur
+  "Millepora" = 'gold',
+  "Millepora alcicornis" = 'gold',
+  "Millepora squarrosa" = 'goldenrod',
+  "Montastraea cavernosa" = 'lightblue',
+  "Montastraea" = 'lightblue',
+  "Mycetophyllia" = '#6A3D9A',
+  "Orbicella" = '#6A3D9A',
+  "Orbicella annularis" = '#7A4DAA', 
+  "Orbicella faveolata" = 'purple',
+  "Orbicella franksi" = 'plum',  
+  "Porites astreoides" = '#FDBF6F',
+  "Porites porites" = 'orange',
+  "Porites divaricata" = 'orange3',
+  "Porites branneri" = 'orange4',
+  "Porites" = 'darkorange',
+  "Pseudodiploria" = 'royalblue',
+  "Pseudodiploria strigosa" = 'royalblue', 
+  "Pseudodiploria clivosa" = 'royalblue', 
+  "Siderastrea" = '#FB9A99',
+  "Siderastrea radians" = '#FB8A89', 
+  "Siderastrea siderea" = '#FA7A79', 
+  "Solenastrea bournoni" = 'magenta',
+  "Solenastrea" = 'magenta',
+  "Stephanocoenia" = 'tomato',
+  "Stephanocoenia intersepta" = 'tomato',
+    "Stylaster roseus" = 'pink',
+  "NA"='black'
+)
+
+
+Palette_oursin <- c(
+  "Diadema antillarum" = 'lightgoldenrod3',
+  "Echinometra lucunter" = 'peachpuff3',
+  "Echinometra viridis" = 'peachpuff2',
+  "Eucidaris tribuloides" = 'peachpuff4',
+  "Tripneustes ventricosus" = 'papayawhip',
+  "Lytechinus variegatus" = 'peachpuff1',
+  "Meoma ventricosa" = 'gray32'
+)
+
+# Palette classe recouvrement
+Palette_classe_recouvrement <- c( "0%" = 'forestgreen',
+                                 "1-10%" = '#0099FF',
+                                 "11-50%" = 'yellow',
+                                 "51-90%" = 'orange',
+                                 "91-100%" = 'red')
+
+Palette_Type_recouvrement<- c( "Blanchissement" = 'ivory3',
+                                 "Nécrose" = 'lightgoldenrod1')
+
+# Palette regime trophique (poissons) - reprise telle quelle du script GPMG
+Palette_regime_trophique <- c("Herbivore" = 'yellowgreen',
+                              "Planctonophage"='lightblue',
+                              "Omnivore"='dodgerblue',
+                              "Carnivore1"='khaki1',
+                              "Carnivore2"='burlywood1',
+                              "Piscivore" = 'firebrick1')
+
+```
+
+
+##2.1_BENTHOS (LIT / RECRUES / OURSINS / MACROALGUES)
+###2.1.1_Analyse de l'année en cours
+```{r}
+# Etat des lieux de la derniere annee de suivi (BENTHOS_LIT_ANNEE), avant
+# les graphiques d'evolution multi-annees de la section 2.1.2 ci-dessous.
+cat("Derniere annee de suivi :", max(BENTHOS_LIT_ANNEE$Annee, na.rm = TRUE), "\n\n")
+
+cat("Recouvrement par grand type (%), derniere annee :\n")
+print(Recouvrement_benthos_complet %>% filter(Annee == max(Annee, na.rm = TRUE)))
+
+cat("\nComposition corail dur par taxon (%), derniere annee :\n")
+print(Taxons_coralliens %>% filter(Annee == max(Annee, na.rm = TRUE)))
+
+cat("\nIndicateur Algues/Corail, derniere annee :\n")
+print(Indicateur_benthos %>% filter(Annee == max(Annee, na.rm = TRUE)))
+```
+
+```{r}
+# Graphiques (camemberts) pour l'annee en cours, complementaires aux
+# tableaux textuels ci-dessus. Meme logique visuelle que les camemberts
+# poissons de la section 2.2.1 (composition = camembert ; evolution
+# temporelle = barres, deja disponible en 2.1.2).
+annee_courante_benthos <- max(BENTHOS_LIT_ANNEE$Annee, na.rm = TRUE)
+
+## (a) Recouvrement par grand type (LIT), un camembert par station
+Recouvrement_benthos_annee_encours <- Recouvrement_benthos_complet %>%
+  filter(Annee == annee_courante_benthos, Source == "Extraction_ReefDB_LIT")
+
+dir.create("R_PLOT/LIT BENTHOS/Annee_en_cours", showWarnings = FALSE, recursive = TRUE)
+
+for (station_value in unique(Recouvrement_benthos_annee_encours$Station)) {
+
+  df_station <- Recouvrement_benthos_annee_encours %>%
+    filter(Station == station_value) %>%
+    mutate(LIT = factor(LIT, levels = names(Palette_nature_recouvrement)))
+
+  plot_camembert_benthos <- ggplot(df_station, aes(x = "", y = Pourcentage_moyen, fill = LIT)) +
+    geom_bar(stat = "identity", width = 1, color = "white") +
+    geom_label_repel(aes(label = paste0(round(Pourcentage_moyen), "%")),
+                      position = position_stack(vjust = 0.5), size = 3.2,
+                      show.legend = FALSE, colour = "black", fontface = "bold") +
+    coord_polar(theta = "y") +
+    theme_void() +
+    scale_fill_manual(values = Palette_nature_recouvrement, drop = FALSE) +
+    labs(title = str_wrap(paste("Recouvrement benthique -", station_value), width = 45),
+         subtitle = paste("Annee", annee_courante_benthos),
+         fill = NULL) +
+    theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 12),
+          plot.subtitle = element_text(hjust = 0.5, size = 9, face = "italic"),
+          legend.position = "bottom",
+          panel.background  = element_rect(fill = "transparent", colour = NA),
+          plot.background   = element_rect(fill = "transparent", colour = NA),
+          legend.background = element_rect(fill = "transparent", colour = NA),
+          legend.key        = element_rect(fill = "transparent", colour = NA)) +
+    guides(fill = guide_legend(nrow = 3))
+
+  ggsave(file.path("R_PLOT/LIT BENTHOS/Annee_en_cours",
+                    gsub(" ", "_", paste0("Recouvrement_benthos_", station_value, ".png"))),
+         plot_camembert_benthos, width = 14, height = 14, dpi = 300, units = "cm", bg = "transparent")
+}
+
+## (b) Composition corail dur par taxon, un camembert par station
+Taxons_coralliens_annee_encours <- Taxons_coralliens %>%
+  filter(Annee == annee_courante_benthos, Source == "Extraction_ReefDB_LIT")
+
+for (station_value in unique(Taxons_coralliens_annee_encours$Station)) {
+
+  df_station <- Taxons_coralliens_annee_encours %>% filter(Station == station_value)
+  if (nrow(df_station) == 0) next
+
+  plot_camembert_taxons <- ggplot(df_station, aes(x = "", y = Pourcentage_moyen, fill = Taxon)) +
+    geom_bar(stat = "identity", width = 1, color = "white") +
+    geom_label_repel(aes(label = paste0(round(Pourcentage_moyen), "%")),
+                      position = position_stack(vjust = 0.5), size = 3,
+                      show.legend = FALSE, colour = "black", fontface = "bold") +
+    coord_polar(theta = "y") +
+    theme_void() +
+    scale_fill_manual(values = Palette_taxons_coralliens) +
+    labs(title = str_wrap(paste("Composition corallienne par taxon -", station_value), width = 45),
+         subtitle = paste("Annee", annee_courante_benthos),
+         fill = NULL) +
+    theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 12),
+          plot.subtitle = element_text(hjust = 0.5, size = 9, face = "italic"),
+          legend.position = "bottom",
+          panel.background  = element_rect(fill = "transparent", colour = NA),
+          plot.background   = element_rect(fill = "transparent", colour = NA),
+          legend.background = element_rect(fill = "transparent", colour = NA),
+          legend.key        = element_rect(fill = "transparent", colour = NA)) +
+    guides(fill = guide_legend(nrow = 4))
+
+  ggsave(file.path("R_PLOT/LIT BENTHOS/Annee_en_cours",
+                    gsub(" ", "_", paste0("Taxons_coralliens_", station_value, ".png"))),
+         plot_camembert_taxons, width = 15, height = 15, dpi = 300, units = "cm", bg = "transparent")
+}
+
+## (c) Indicateur Algues/Corail, comparaison entre stations (barres)
+Indicateur_benthos_annee_encours <- Indicateur_benthos %>%
+  filter(Annee == annee_courante_benthos)
+
+plot_ratio_encours <- ggplot(Indicateur_benthos_annee_encours, aes(x = Station, y = Ratio_algues_corail, fill = Station)) +
+  geom_col(width = 0.5) +
+  geom_label(aes(label = Ratio_algues_corail), fill = "white", fontface = "bold", size = 4, show.legend = FALSE) +
+  theme_classic() +
+  labs(title = "Indicateur Algues / Corail",
+       subtitle = paste("Annee", annee_courante_benthos, "- un ratio croissant traduit une derive vers la dominance algale"),
+       x = "", y = "Ratio Algues:Corail") +
+  theme(
+    plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
+    plot.subtitle = element_text(size = 8, hjust = 0.5, face = "italic"),
+    axis.text = element_text(size = 10, face = "bold"),
+    legend.position = "none",
+    panel.background  = element_rect(fill = "transparent", colour = NA),
+    plot.background   = element_rect(fill = "transparent", colour = NA)
+  )
+
+ggsave("R_PLOT/LIT BENTHOS/Annee_en_cours/Indicateur_algues_corail.png",
+       plot_ratio_encours, width = 14, height = 11, dpi = 300, units = "cm", bg = "transparent")
+```
+
+
+
+
+###2.1.2_Analyse temporelle (Evolution) 
+#####2.1.2.1 Evolution du recouvrement benthique (LIT)
+```{r}
+# Graphiques d'evolution multi-annees construits a partir des tables de
+# la section 1.7 (extraction ReefDB + historique ATE + rapport Bouchon
+# 2024 quand disponibles). Utilise les palettes definies plus haut dans
+# cette section (Palette_nature_recouvrement, Palette_categorie_detail,
+# Palette_taxons_coralliens).
+
+# --- 8. Graphiques d'evolution par station ------------------------------
+# Meme logique de boucle "for (station in unique(...))" + sauvegarde PNG
+# que dans le script de reference (dossier R_PLOT/LIT BENTHOS/...).
+
+# Fond transparent reutilisable sur tous les graphiques (panneau, figure
+# ET legende - les trois doivent etre transparents, sinon un rectangle
+# blanc/gris reste visible derriere la legende meme si le reste est ok).
+# A additionner avec "+" a la fin de chaque theme().
+# Fond transparent reutilisable sur tous les graphiques (panneau, figure,
+# legende ET bandeaux de facette - les quatre doivent etre transparents,
+# sinon un rectangle blanc/gris reste visible derriere).
+fond_transparent <- theme(
+  panel.background   = element_rect(fill = "transparent", colour = NA),
+  plot.background    = element_rect(fill = "transparent", colour = NA),
+  legend.background  = element_rect(fill = "transparent", colour = NA),
+  legend.key         = element_rect(fill = "transparent", colour = NA),
+  strip.background   = element_rect(fill = "transparent", colour = NA)
+)
+
+# plot.title.position = "plot" -> le titre s'aligne sur toute la largeur
+# de la figure (et non juste sur le panneau), ce qui evite qu'un titre
+# long soit coupe a gauche par l'axe Y.
+theme_recouvrement <- theme_classic() +
+  theme(
+    plot.title = element_text(face = "bold", size = 13, hjust = 0.5, lineheight = 1.1),
+    plot.title.position = "plot",
+    axis.text.x = element_text(face = "bold", angle = 45, vjust = 1, hjust = 1, size = 11),
+    axis.text.y = element_text(face = "bold", vjust = 0.5, hjust = 1, size = 11),
+    axis.title.y = element_text(size = 12, face = "bold"),
+    axis.title.x = element_blank(),
+    plot.margin = margin(0.3, 0.5, 0.3, 0.3, "cm"),
+    legend.position = "bottom",
+    legend.title = element_blank(),
+    legend.text = element_text(size = 10),
+    legend.key.size = unit(0.45, "cm")
+  ) +
+  fond_transparent
+
+save_directory_nature <- "R_PLOT/LIT BENTHOS/1.1_LIT"
+dir.create(save_directory_nature, showWarnings = FALSE, recursive = TRUE)
+
+# NB : la position verticale des etiquettes est calculee manuellement
+# (colonne y_label) plutot que via position_stack(vjust = 0.5) sur la
+# couche geom_label. Avec plusieurs couches (geom_col + geom_label),
+# position_stack() donne un ordre de calcul correct dans ggplot_build()
+# mais un rendu final decale par rapport aux vrais segments du geom_col
+# (bug de rendu ggplot2 avec geom_label multi-couches) - le calcul manuel
+# contourne le probleme en donnant directement la coordonnee y voulue.
+ajouter_position_etiquettes <- function(df, groupe_var, fill_var, valeur_var) {
+  df %>%
+    arrange({{ groupe_var }}, {{ fill_var }}) %>%
+    group_by({{ groupe_var }}) %>%
+    mutate(
+      .total  = sum({{ valeur_var }}),
+      .cum    = cumsum({{ valeur_var }}),
+      y_label = .total - (.cum - {{ valeur_var }} / 2)
+    ) %>%
+    ungroup() %>%
+    select(-.total, -.cum)
+}
+
+# Couleur de texte (noir ou blanc) choisie selon la luminance de la
+# couleur de fond, pour rester lisible SANS encart derriere l'etiquette
+# (l'utilisateur a demande a retirer les encarts, ou a defaut les rendre
+# transparents - on retire l'encart et on adapte la couleur du texte a
+# la place, ce qui reste lisible sur toute la palette).
+choisir_couleur_texte <- function(couleurs) {
+  rgb_vals <- col2rgb(couleurs)
+  luminance <- (0.299 * rgb_vals[1, ] + 0.587 * rgb_vals[2, ] + 0.114 * rgb_vals[3, ]) / 255
+  ifelse(luminance > 0.6, "black", "white")
+}
+
+# Etiquette de valeur affichee SEULEMENT s'il y a la place de l'ecrire
+# dans la case : le segment doit representer au moins frac_min de la
+# hauteur de l'axe (= plus haute barre du graphique). Un seuil relatif
+# (et non un seuil fixe en %) reste valable quelle que soit l'unite
+# (%, colonies/10 m², kg/ha...) et l'echelle du graphique.
+etiquette_si_place <- function(valeur, hauteur_axe, texte, frac_min = 0.05) {
+  ifelse(!is.na(valeur) & valeur > 0 & valeur >= frac_min * hauteur_axe, texte, "")
+}
+
+# Hauteur de l'axe d'un graphique en barres empilees = total de la plus
+# haute barre (somme des segments d'une meme abscisse x)
+hauteur_empilee <- function(valeur, x) {
+  max(tapply(valeur, x, sum, na.rm = TRUE), na.rm = TRUE)
+}
+
+# Formes des points par source de donnees, FIXEES explicitement (sinon
+# ggplot attribue rond/triangle/carre dans l'ordre alphabetique des
+# sources presentes sur chaque graphique : une meme source pouvait donc
+# etre un triangle sur un graphique et un carre sur un autre, ce qui
+# rendait les sous-titres faux). Forme identique partout desormais :
+#   rond = extraction ReefDB ; triangle = historique ATE ; carre = Bouchon 2024
+Formes_source <- c(
+  "Extraction_ReefDB_LIT"     = 16,
+  "Extraction_ReefDB_Quadrat" = 16,
+  "Extraction_ReefDB_BELT"    = 16,
+  "Historique_ATE"            = 17,
+  "Rapport_Bouchon_2024"      = 15
+)
+Libelles_source <- c(
+  "Extraction_ReefDB_LIT"     = "Extraction ReefDB",
+  "Extraction_ReefDB_Quadrat" = "Extraction ReefDB",
+  "Extraction_ReefDB_BELT"    = "Extraction ReefDB",
+  "Historique_ATE"            = "Historique ATE",
+  "Rapport_Bouchon_2024"      = "Rapport Bouchon 2024"
+)
+scale_shape_source <- function() {
+  scale_shape_manual(values = Formes_source, labels = Libelles_source, name = NULL)
+}
+
+for (station_value in unique(Recouvrement_LIt_annee$Station)) {
+
+  station_filter <- Recouvrement_LIt_annee %>%
+    filter(Station == station_value) %>%
+    mutate(LIT = factor(LIT, levels = names(Palette_nature_recouvrement))) %>%
+    ajouter_position_etiquettes(Annee, LIT, Pourcentage_moyen) %>%
+    mutate(
+      # etiquette de donnee affichee seulement si le segment est assez
+      # grand pour la contenir lisiblement (evite le fouillis sur les
+      # toutes petites parts, ex. Zoanthaires a 0,1%)
+      etiquette = etiquette_si_place(Pourcentage_moyen, hauteur_empilee(Pourcentage_moyen, Annee),
+                                     paste0(round(Pourcentage_moyen, 1), "%")),
+      couleur_texte = choisir_couleur_texte(Palette_nature_recouvrement[as.character(LIT)])
+    )
+
+  plot_title <- str_wrap(paste("Evolution du recouvrement benthique -", station_value), width = 45)
+  plot_name  <- gsub(" ", "_", paste("Recouvrement_LIt", station_value))
+
+  plot <- ggplot(station_filter, aes(x = factor(Annee), y = Pourcentage_moyen, fill = LIT)) +
+    geom_col(width = 0.7) +
+    geom_text(data = ~ subset(., etiquette != ""), aes(y = y_label, label = etiquette, colour = couleur_texte),
+              size = 3.2, fontface = "bold", show.legend = FALSE) +
+    scale_colour_identity() +
+    scale_fill_manual(values = Palette_nature_recouvrement, drop = FALSE) +
+    labs(title = plot_title, y = "Recouvrement moyen (%)", x = "") +
+    scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.03))) +
+    theme_recouvrement +
+    guides(fill = guide_legend(nrow = 3, byrow = TRUE))
+
+  ggsave(file.path(save_directory_nature, paste0(plot_name, ".png")),
+         plot, width = 18, height = 13, dpi = 300, units = "cm", bg = "transparent")
+}
+
+save_directory_corail <- "R_PLOT/LIT BENTHOS/1.4_Taxons_coralliens"
+dir.create(save_directory_corail, showWarnings = FALSE, recursive = TRUE)
+
+for (station_value in unique(Taxons_coralliens_historique$Station)) {
+
+  station_filter <- Taxons_coralliens_historique %>%
+    filter(Station == station_value) %>%
+    ajouter_position_etiquettes(Annee, Taxon, Pourcentage_moyen) %>%
+    mutate(
+      etiquette = etiquette_si_place(Pourcentage_moyen, hauteur_empilee(Pourcentage_moyen, Annee),
+                                     paste0(round(Pourcentage_moyen, 1), "%")),
+      couleur_fond  = unname(Palette_taxons_coralliens[as.character(Taxon)]),
+      couleur_fond  = ifelse(is.na(couleur_fond), "grey50", couleur_fond),
+      couleur_texte = choisir_couleur_texte(couleur_fond)
+    )
+
+  a_du_recrutement <- any(station_filter$Source == "Recrutement_Bouchon_2024")
+
+  plot_title <- str_wrap(paste("Evolution du recouvrement corallien par taxon -", station_value), width = 45)
+  plot_name  <- gsub(" ", "_", paste("Taxons_coralliens", station_value))
+
+  plot <- ggplot(station_filter, aes(x = factor(Annee), y = Pourcentage_moyen, fill = Taxon)) +
+    geom_col(width = 0.7) +
+    geom_text(data = ~ subset(., etiquette != ""), aes(y = y_label, label = etiquette, colour = couleur_texte),
+              size = 3, fontface = "bold", show.legend = FALSE) +
+    scale_colour_identity() +
+    scale_fill_manual(values = Palette_taxons_coralliens) +
+    labs(title = plot_title, y = "Composition (%)", x = "",
+         subtitle = if (a_du_recrutement) {
+           str_wrap("Composition relative (%, somme = 100 par annee) : 2022/2026 = corail adulte (LIT) ; 2018-2024 (Bouchon) = recrutement juvenile", width = 70)
+         } else NULL) +
+    theme_recouvrement +
+    theme(plot.subtitle = element_text(size = 7.5, hjust = 0.5, face = "italic", lineheight = 1.1)) +
+    guides(fill = guide_legend(nrow = 5, byrow = TRUE))
+
+  ggsave(file.path(save_directory_corail, paste0(plot_name, ".png")),
+         plot, width = 18, height = 16, dpi = 300, units = "cm", bg = "transparent")
+}
+
+
+# --- 8bis. Nouveaux graphiques a partir de Recouvrement_detail_replicat -
+
+## (a) Composition detaillee par categorie (plus fin que le niveau LIT)
+save_directory_detail <- "R_PLOT/LIT BENTHOS/1.2_Composition_detaillee"
+dir.create(save_directory_detail, showWarnings = FALSE, recursive = TRUE)
+
+categories_presentes <- intersect(names(Palette_categorie_detail),
+                                   unique(Recouvrement_detail_historique$Categorie_detail))
+
+for (station_value in unique(Recouvrement_detail_historique$Station)) {
+
+  station_filter <- Recouvrement_detail_historique %>%
+    filter(Station == station_value) %>%
+    mutate(Categorie_detail = factor(Categorie_detail, levels = categories_presentes)) %>%
+    ajouter_position_etiquettes(Annee, Categorie_detail, Pourcentage_moyen) %>%
+    mutate(
+      etiquette = etiquette_si_place(Pourcentage_moyen, hauteur_empilee(Pourcentage_moyen, Annee),
+                                     paste0(round(Pourcentage_moyen, 1), "%")),
+      couleur_texte = choisir_couleur_texte(Palette_categorie_detail[as.character(Categorie_detail)])
+    )
+
+  a_des_donnees_bouchon <- any(station_filter$Source == "Rapport_Bouchon_2024")
+
+  plot_title <- str_wrap(paste("Composition detaillee du recouvrement -", station_value), width = 45)
+  plot_name  <- gsub(" ", "_", paste("Composition_detaillee", station_value))
+
+  plot <- ggplot(station_filter, aes(x = factor(Annee), y = Pourcentage_moyen, fill = Categorie_detail)) +
+    geom_col(width = 0.7) +
+    geom_text(data = ~ subset(., etiquette != ""), aes(y = y_label, label = etiquette, colour = couleur_texte),
+              size = 3, fontface = "bold", show.legend = FALSE) +
+    scale_colour_identity() +
+    scale_fill_manual(values = Palette_categorie_detail, drop = TRUE) +
+    labs(title = plot_title, y = "Recouvrement moyen (%)", x = "",
+         subtitle = if (a_des_donnees_bouchon) {
+           "Annees 2018-2024 : rapport Bouchon & Bouchon-Navaro (2024)"
+         } else NULL) +
+    scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.03))) +
+    theme_recouvrement +
+    theme(plot.subtitle = element_text(size = 8, hjust = 0.5, face = "italic")) +
+    guides(fill = guide_legend(nrow = 4, byrow = TRUE))
+
+  ggsave(file.path(save_directory_detail, paste0(plot_name, ".png")),
+         plot, width = 20, height = 16, dpi = 300, units = "cm", bg = "transparent")
+}
+
+## (d) Variabilite inter-replicats (controle qualite TR1 vs TR2)
+# Utile pour reperer une forte heterogeneite spatiale ou un point de
+# saisie suspect avant de communiquer les moyennes.
+save_directory_qc <- "R_PLOT/LIT BENTHOS/2.2_Variabilite_replicats"
+dir.create(save_directory_qc, showWarnings = FALSE, recursive = TRUE)
+
+for (station_value in unique(Recouvrement_LIt_replicat$Station)) {
+
+  station_filter <- Recouvrement_LIt_replicat %>%
+    filter(Station == station_value) %>%
+    mutate(LIT = factor(LIT, levels = names(Palette_nature_recouvrement)))
+
+  plot_title <- str_wrap(paste("Variabilite inter-replicats -", station_value), width = 45)
+  plot_name  <- gsub(" ", "_", paste("Variabilite_replicats", station_value))
+
+  plot <- ggplot(station_filter, aes(x = factor(Annee), y = Pourcentage_recouvrement, fill = LIT)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+    geom_jitter(width = 0.15, size = 1.2, alpha = 0.6) +
+    facet_wrap(~LIT, scales = "free_y", ncol = 2,
+               labeller = labeller(LIT = label_wrap_gen(width = 20))) +
+    scale_fill_manual(values = Palette_nature_recouvrement, guide = "none") +
+    labs(title = plot_title, y = "Recouvrement (%)", x = "") +
+    theme_classic() +
+    theme(
+      plot.title = element_text(face = "bold", size = 13, hjust = 0.5),
+      plot.title.position = "plot",
+      strip.text = element_text(size = 9.5, face = "bold", margin = margin(3, 3, 3, 3)),
+      axis.text.x = element_text(size = 10, face = "bold"),
+      axis.text.y = element_text(size = 10, face = "bold"),
+      axis.title = element_text(size = 11, face = "bold"),
+      panel.spacing = unit(0.6, "cm")
+    ) +
+    fond_transparent
+
+  ggsave(file.path(save_directory_qc, paste0(plot_name, ".png")),
+         plot, width = 20, height = 18, dpi = 300, units = "cm", bg = "transparent")
+}
+
+## (e) Heatmap de synthese Categorie x Annee, une figure par station
+# Palette viridis : perceptuellement uniforme, lisible en niveaux de gris
+# et beaucoup plus contrastee que dégradé blanc->vert (plus pertinente
+# pour distinguer les valeurs faibles des valeurs fortes).
+save_directory_heatmap <- "R_PLOT/LIT BENTHOS/2.3_Heatmap_synthese"
+dir.create(save_directory_heatmap, showWarnings = FALSE, recursive = TRUE)
+
+for (station_value in unique(Recouvrement_detail_historique$Station)) {
+
+  Heatmap_data <- Recouvrement_detail_historique %>%
+    filter(Station == station_value) %>%
+    mutate(
+      etiquette = ifelse(Pourcentage_moyen > 0, sprintf("%.1f", Pourcentage_moyen), ""),
+      # couleur du texte adaptee a la luminosite de la case (lisible sur
+      # les cases sombres du haut de l'echelle viridis comme sur les
+      # cases claires du bas)
+      couleur_texte = ifelse(Pourcentage_moyen > max(Pourcentage_moyen, na.rm = TRUE) * 0.55,
+                              "white", "black")
+    )
+
+  a_des_donnees_bouchon <- any(Heatmap_data$Source == "Rapport_Bouchon_2024")
+
+  plot_title <- str_wrap(paste("Synthese du recouvrement benthique -", station_value), width = 45)
+  plot_name  <- gsub(" ", "_", paste("Heatmap_synthese", station_value))
+
+  plot_heatmap <- ggplot(Heatmap_data, aes(x = factor(Annee), y = Categorie_detail, fill = Pourcentage_moyen)) +
+    geom_tile(colour = "white", linewidth = 0.6) +
+    geom_text(aes(label = etiquette, colour = couleur_texte), size = 3.6, fontface = "bold") +
+    scale_colour_identity() +
+    scale_fill_viridis_c(option = "viridis", name = "% recouvrement") +
+    labs(title = plot_title, x = "", y = "",
+         subtitle = if (a_des_donnees_bouchon) {
+           "Annees 2018-2024 : rapport Bouchon & Bouchon-Navaro (2024)"
+         } else NULL) +
+    theme_minimal() +
+    theme(
+      plot.subtitle = element_text(size = 8, hjust = 0.5, face = "italic"),
+      plot.title = element_text(face = "bold", size = 13, hjust = 0.5),
+      plot.title.position = "plot",
+      axis.text.x = element_text(face = "bold", size = 11),
+      axis.text.y = element_text(size = 11, face = "bold"),
+      legend.title = element_text(size = 10),
+      legend.text = element_text(size = 9)
+    ) +
+    fond_transparent
+
+  n_annees_heatmap <- n_distinct(Heatmap_data$Annee)
+
+  ggsave(file.path(save_directory_heatmap, paste0(plot_name, ".png")),
+         plot_heatmap, width = max(16, 3 * n_annees_heatmap + 6), height = 13,
+         dpi = 300, units = "cm", bg = "transparent")
+}
+
+
+## (f) Serie longue 2002-2026 (extraction + historique ATE + Bouchon 2024)
+if (!is.null(BDD_evolution_benthos)) {
+
+  BDD_long <- BDD_evolution_benthos %>%
+    select(Station, Date, Annee, Source, Recouvrement_corallien_pct, Recouvrement_macroalgues_pct) %>%
+    pivot_longer(cols = c(Recouvrement_corallien_pct, Recouvrement_macroalgues_pct),
+                 names_to = "Indicateur", values_to = "Pourcentage") %>%
+    mutate(Indicateur = case_when(
+      Indicateur == "Recouvrement_corallien_pct"   ~ "Corail dur",
+      Indicateur == "Recouvrement_macroalgues_pct" ~ "Macroalgues",
+      TRUE ~ Indicateur
+    ))
+
+  save_directory_serie <- "R_PLOT/LIT BENTHOS/3.1_Serie_historique"
+  dir.create(save_directory_serie, showWarnings = FALSE, recursive = TRUE)
+
+  # NB : il y a UN graphique par station (Baleine de Pain de Sucre et
+  # Ilet Coco), d'ou les 2 fichiers dans 3.1_Serie_historique. Sur chaque
+  # graphique, l'annee 2022 peut aussi apparaitre 2 fois : une valeur
+  # "Historique ATE" (transects 60 m) et une valeur "Extraction ReefDB"
+  # (transects 30 m) - 2 campagnes distinctes, conservees volontairement
+  # (cf. avertissement "annees avec plusieurs sources" en section 1.7).
+
+  # Tendance lineaire par indicateur : pente (%/an), R², p-value de la
+  # regression + test non parametrique de Mann-Kendall (plus adapte aux
+  # series ecologiques courtes / non normales, package Kendall).
+  calculer_tendance <- function(df) {
+    df <- df %>% filter(!is.na(Pourcentage)) %>% arrange(Date)
+    if (nrow(df) < 3) {
+      return(tibble(Pente_an = NA_real_, R2 = NA_real_, p_lm = NA_real_,
+                    Tau_MK = NA_real_, p_MK = NA_real_, n = nrow(df)))
+    }
+    df <- df %>% mutate(Annee_dec = decimal_date(Date))
+    modele <- lm(Pourcentage ~ Annee_dec, data = df)
+    resume <- summary(modele)
+    mk <- tryCatch(Kendall::MannKendall(df$Pourcentage), error = function(e) NULL)
+    tibble(
+      Pente_an = unname(coef(modele)[2]),
+      R2       = resume$r.squared,
+      p_lm     = coef(resume)[2, 4],
+      Tau_MK   = if (is.null(mk)) NA_real_ else as.numeric(mk$tau),
+      p_MK     = if (is.null(mk)) NA_real_ else as.numeric(mk$sl),
+      n        = nrow(df)
+    )
+  }
+
+  formater_p <- function(p) ifelse(is.na(p), "NA", ifelse(p < 0.001, "< 0.001", sprintf("= %.3f", p)))
+
+  Tendances_serie_historique <- BDD_long %>%
+    group_by(Station, Indicateur) %>%
+    group_modify(~ calculer_tendance(.x)) %>%
+    ungroup() %>%
+    mutate(Texte = paste0(
+      sprintf("%s : pente = %+.2f %%/an ; R² = %.2f ; p %s", Indicateur, Pente_an, R2, formater_p(p_lm)),
+      ifelse(is.na(Tau_MK), "", sprintf(" (Mann-Kendall tau = %.2f, p %s)", Tau_MK, formater_p(p_MK))),
+      sprintf(" ; n = %d", n)
+    ))
+
+  cat("\nTendances lineaires - serie historique 2002-2026 :\n")
+  print(Tendances_serie_historique %>% select(-Texte), n = Inf)
+
+  for (station_value in unique(BDD_long$Station)) {
+
+    station_filter <- BDD_long %>% filter(Station == station_value, !is.na(Pourcentage))
+    plot_name <- gsub(" ", "_", paste0("Evolution_2002_2026_", station_value))
+
+    texte_tendance <- Tendances_serie_historique %>%
+      filter(Station == station_value) %>%
+      pull(Texte) %>%
+      paste(collapse = "\n")
+
+    plot_serie_longue <- ggplot(station_filter, aes(x = Date, y = Pourcentage, colour = Indicateur)) +
+      geom_line(aes(group = Indicateur), linewidth = 0.7, alpha = 0.5) +
+      # courbe de tendance lineaire + intervalle de confiance 95%
+      geom_smooth(aes(group = Indicateur, fill = Indicateur), method = "lm", formula = y ~ x,
+                  se = TRUE, linetype = "dashed", linewidth = 0.8, alpha = 0.12, show.legend = FALSE) +
+      geom_point(aes(shape = Source), size = 2.8) +
+      geom_text_repel(aes(label = round(Pourcentage, 1)), size = 2.6, fontface = "bold",
+                      show.legend = FALSE, min.segment.length = 0.3, seed = 1) +
+      scale_colour_manual(values = c("Corail dur" = "lightsalmon3", "Macroalgues" = "seagreen4")) +
+      scale_fill_manual(values = c("Corail dur" = "lightsalmon3", "Macroalgues" = "seagreen4"), guide = "none") +
+      scale_shape_source() +
+      scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.08)),
+                         oob = scales::squish) +
+      labs(title = str_wrap(paste("Evolution 2002-2026 du recouvrement -", station_value), width = 45),
+           subtitle = "Rond = extraction ReefDB (30 m) ; triangle = historique ATE (60 m) ; carre = rapport Bouchon 2024\nTirets = tendance lineaire (+ IC 95%)",
+           caption = texte_tendance,
+           x = "", y = "Recouvrement (%)") +
+      theme_classic() +
+      theme(
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5, lineheight = 1.1),
+        plot.title.position = "plot",
+        plot.subtitle = element_text(size = 8.5, hjust = 0.5, face = "italic"),
+        plot.caption = element_text(size = 7.5, hjust = 0, face = "italic", lineheight = 1.2),
+        plot.caption.position = "plot",
+        axis.text = element_text(size = 11, face = "bold"),
+        axis.title = element_text(size = 12, face = "bold"),
+        legend.text = element_text(size = 10),
+        legend.title = element_blank(),
+        legend.position = "bottom",
+        legend.box = "vertical"
+      ) +
+      fond_transparent
+
+    ggsave(file.path(save_directory_serie, paste0(plot_name, ".png")),
+           plot_serie_longue, width = 20, height = 15, dpi = 300, units = "cm", bg = "transparent")
+  }
+}
+
+
+```
+
+#####2.1.2.2 Evolution de la densite de recrues coralliennes (2002-2026)
+```{r}
+# Diagramme en barres par station (moyenne +/- ecart-type quand dispo,
+# couleur = source de la donnee, etiquette de valeur au-dessus de chaque
+# barre). Reutilise pour les recrues (ci-dessous) et les oursins (2.1.2.3).
+Couleurs_source <- c(
+  "Extraction_ReefDB_LIT"     = "steelblue3",
+  "Extraction_ReefDB_Quadrat" = "steelblue3",
+  "Historique_ATE"            = "grey60",
+  "Rapport_Bouchon_2024"      = "darkorange2"
+)
+
+tracer_evolution_station_barres <- function(df, col_valeur, col_sd, titre, label_y,
+                                            dossier, prefixe_fichier, decimales = 2) {
+  dir.create(dossier, showWarnings = FALSE, recursive = TRUE)
+
+  for (station_value in unique(df$Station)) {
+
+    df_station <- df %>%
+      filter(Station == station_value, !is.na(.data[[col_valeur]])) %>%
+      mutate(
+        Valeur  = .data[[col_valeur]],
+        SD      = .data[[col_sd]],
+        y_haut  = Valeur + ifelse(is.na(SD), 0, SD),
+        etiquette = formatC(Valeur, format = "f", digits = decimales, decimal.mark = ",")
+      )
+    if (nrow(df_station) == 0) next
+
+    sources_presentes <- unique(df_station$Source)
+    n_annees <- n_distinct(df_station$Annee)
+
+    # meme position_dodge (et meme groupe = Source) pour les 3 couches,
+    # pour que barres, barres d'erreur et etiquettes restent alignees
+    dodge <- position_dodge(width = 0.75)
+
+    plot_station <- ggplot(df_station, aes(x = factor(Annee), y = Valeur, fill = Source, group = Source)) +
+      geom_col(position = dodge, width = 0.7) +
+      geom_errorbar(aes(ymin = pmax(Valeur - SD, 0), ymax = Valeur + SD),
+                    position = dodge, width = 0.25, linewidth = 0.4, na.rm = TRUE) +
+      # etiquette au-dessus de la barre (ou de la barre d'erreur) : il y a
+      # toujours la place, on ne la masque donc pas
+      geom_text(aes(y = y_haut, label = etiquette),
+                position = dodge, vjust = -0.5, size = 3, fontface = "bold") +
+      scale_fill_manual(values = Couleurs_source[sources_presentes],
+                        labels = Libelles_source[sources_presentes]) +
+      scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.12))) +
+      theme_classic() +
+      labs(title = str_wrap(paste(titre, "-", station_value), width = 50),
+           subtitle = "Barres d'erreur = ecart-type inter-quadrats (annees d'extraction uniquement)",
+           x = "", y = label_y) +
+      theme(
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
+        plot.title.position = "plot",
+        plot.subtitle = element_text(size = 7.5, hjust = 0.5, face = "italic"),
+        axis.text = element_text(size = 10, face = "bold"),
+        legend.position = "bottom",
+        legend.title = element_blank(),
+        panel.background  = element_rect(fill = "transparent", colour = NA),
+        plot.background   = element_rect(fill = "transparent", colour = NA),
+        legend.background = element_rect(fill = "transparent", colour = NA),
+        legend.key        = element_rect(fill = "transparent", colour = NA)
+      )
+
+    ggsave(file.path(dossier, paste0(gsub(" ", "_", paste0(prefixe_fichier, station_value)), ".png")),
+           plot_station, width = max(14, 2 * n_annees + 6), height = 12,
+           dpi = 300, units = "cm", bg = "transparent")
+  }
+}
+
+# Variabilite inter-quadrats pour les annees d'extraction moderne (seule
+# information que la boucle par quadrat apportait en plus de la serie
+# longue - fusionnee ici sous forme de barres d'erreur plutot que 2
+# graphiques separes).
+Recrues_variabilite_moderne <- RECRUES %>%
+  mutate(Densite_recrues_m2 = REPLICAT_Nombre_de_recrues_coralliennes_Protocole_Quadrat * 2) %>%
+  group_by(Station, Annee) %>%
+  summarise(Recrues_sd = round(sd(Densite_recrues_m2, na.rm = TRUE), 2), .groups = "drop") %>%
+  mutate(Annee = as.numeric(as.character(Annee)))
+
+## Serie longue 2002-2026 (historique ATE + Bouchon + extraction moderne)
+# Integre les valeurs historiques du fichier ATE et du rapport Bouchon
+# 2024 (feuille Coraux_recrutement), fusionnees avec la densite moderne
+# (moyenne des quadrats RECRUES) dans BDD_evolution_benthos (cf. 1.7), et
+# la variabilite inter-quadrats (barres d'erreur) pour les annees
+# d'extraction ou cette information est disponible.
+if (exists("BDD_evolution_benthos") && !is.null(BDD_evolution_benthos) &&
+    "Recrues_m2" %in% names(BDD_evolution_benthos)) {
+
+  Recrues_longue <- BDD_evolution_benthos %>%
+    filter(!is.na(Recrues_m2)) %>%
+    select(Station, Date, Annee, Source, Recrues_m2) %>%
+    left_join(Recrues_variabilite_moderne, by = c("Station", "Annee")) %>%
+    # l'ecart-type inter-quadrats ne s'applique qu'a la ligne "extraction"
+    # de l'annee concernee, pas a une eventuelle ligne historique/Bouchon
+    # partageant la meme Station x Annee (cf. doublons d'annee, section 1.7)
+    mutate(Recrues_sd = ifelse(Source == "Extraction_ReefDB_LIT", Recrues_sd, NA_real_))
+
+  cat("\nApercu - densite de recrues, toutes sources (verifier la correspondance",
+      "entre les lignes 'Historique_ATE'/'Rapport_Bouchon_2024' et 'Extraction_ReefDB_LIT' pour une meme annee) :\n")
+  print(Recrues_longue, n = Inf)
+
+  # Verification explicite pour 2022 (seule annee ou l'historique ATE ET
+  # l'extraction moderne coexistent) : les deux valeurs different car ce
+  # ne sont pas la meme campagne de terrain (dates differentes, cf.
+  # avertissement sur les doublons d'annee en section 1.7) - ce n'est pas
+  # une erreur de fusion, juste 2 mesures independantes a comparer a l'oeil.
+  comparaison_2022 <- Recrues_longue %>% filter(Annee == 2022) %>% arrange(Station, Date)
+  if (nrow(comparaison_2022) > 0) {
+    cat("\nComparaison 2022 (historique vs extraction, memes stations) :\n")
+    print(comparaison_2022)
+  }
+
+  if (nrow(Recrues_longue) > 0) {
+    plot_recrues_historique <- ggplot(Recrues_longue, aes(x = Annee, y = Recrues_m2, colour = Station, shape = Source, group = Station)) +
+      geom_line(linewidth = 0.7, alpha = 0.6) +
+      geom_errorbar(aes(ymin = pmax(Recrues_m2 - Recrues_sd, 0), ymax = Recrues_m2 + Recrues_sd),
+                    width = 0.3, alpha = 0.5, na.rm = TRUE, show.legend = FALSE) +
+      geom_point(size = 2.8) +
+      scale_shape_source() +
+      theme_classic() +
+      labs(title = str_wrap("Evolution 2002-2026 de la densite de recrues coralliennes", width = 45),
+           subtitle = "Rond = extraction ReefDB (quadrat) ; triangle = historique ATE ; carre = rapport Bouchon 2024\nBarres d'erreur = ecart-type inter-quadrats (annees d'extraction uniquement)",
+           x = "", y = "Recrues / m2") +
+      theme(
+        plot.title = element_text(face = "bold", size = 13, hjust = 0.5),
+        plot.title.position = "plot",
+        plot.subtitle = element_text(size = 7.5, hjust = 0.5, face = "italic"),
+        axis.text = element_text(size = 10, face = "bold"),
+        legend.title = element_blank(),
+        panel.background  = element_rect(fill = "transparent", colour = NA),
+        plot.background   = element_rect(fill = "transparent", colour = NA),
+        legend.background = element_rect(fill = "transparent", colour = NA),
+        legend.key        = element_rect(fill = "transparent", colour = NA)
+      )
+
+    dir.create("R_PLOT/QUADRATS RECRUES/Evolution densite de recrues coralliennes", showWarnings = FALSE, recursive = TRUE)
+    ggsave("R_PLOT/QUADRATS RECRUES/Evolution densite de recrues coralliennes/Evolution_2002_2026_recrues.png",
+           plot_recrues_historique, width = 18, height = 13, dpi = 300, units = "cm", bg = "transparent")
+
+    ## Un diagramme en barres par station, TOUTES annees disponibles
+    # (extraction ReefDB + historique ATE + rapport Bouchon 2024 : 2018,
+    # 2020, 2023, 2024 pour Baleine...) - memes donnees que le graphique
+    # global ci-dessus, une station a la fois. Si une annee a 2 sources
+    # (ex. 2022 : ATE et extraction), les 2 barres sont cote a cote.
+    tracer_evolution_station_barres(
+      df              = Recrues_longue,
+      col_valeur      = "Recrues_m2",
+      col_sd          = "Recrues_sd",
+      titre           = "Evolution de la densite de recrues coralliennes",
+      label_y         = "Recrues / m²",
+      dossier         = "R_PLOT/QUADRATS RECRUES/Evolution densite de recrues coralliennes",
+      prefixe_fichier = "Evolution_RECRUES_",
+      decimales       = 2
+    )
+  }
+} else {
+  warning("BDD_evolution_benthos ou sa colonne Recrues_m2 indisponible - ",
+          "verifier que la section 1.7 (historique BENTHOS) s'est bien executee avant celle-ci.")
+  Recrues_longue <- NULL
+}
+```
+
+
+#####2.1.2.3 Evolution de la densite totale d'oursins (2018-2026)
+```{r}
+FICHIER_BOUCHON_OURSINS <- "BD Excel/Data_Bouchon/Rapport_Bouchon_2024_donnees.xlsx"
+
+# Variabilite inter-quadrats pour les annees d'extraction moderne (total
+# tous taxons confondus par quadrat, cf. note sur la limite de
+# Densite_OURSINS_taxons ci-dessous)
+Oursins_variabilite_moderne <- OURSINS %>%
+  group_by(Station, Annee, Replicat) %>%
+  summarise(Densite_quadrat = sum(REPLICAT_Abondance_macrofaune_Protocole_Quadrat_._suivi_cible, na.rm = TRUE), .groups = "drop") %>%
+  group_by(Station, Annee) %>%
+  summarise(Oursins_sd = round(sd(Densite_quadrat, na.rm = TRUE), 3), .groups = "drop") %>%
+  mutate(Annee = as.numeric(as.character(Annee)))
+
+if (file.exists(FICHIER_BOUCHON_OURSINS)) {
+
+  dates_bouchon_oursins <- tibble::tibble(
+    Annee = c(2018, 2020, 2023, 2024),
+    Date  = as.Date(c("2018-12-01", "2020-01-01", "2023-03-01", "2024-11-01"))
+  )
+
+  Oursins_bouchon_brut <- read_excel(FICHIER_BOUCHON_OURSINS, sheet = "Oursins_effectifs", skip = 3)
+
+  # Les 4 premieres lignes sont les especes ; le reste est une note de
+  # bas de page du rapport (comme pour les indicateurs poissons, cf. 1.6bis)
+  Oursins_historique <- Oursins_bouchon_brut %>%
+    slice(1:4) %>%
+    pivot_longer(-Espèce, names_to = "Annee_brute", values_to = "Effectif_60m2") %>%
+    mutate(Annee = as.numeric(Annee_brute)) %>%
+    group_by(Annee) %>%
+    summarise(Effectif_total_60m2 = sum(Effectif_60m2, na.rm = TRUE), .groups = "drop") %>%
+    mutate(Densite_m2 = round(Effectif_total_60m2 / 60, 3),
+           Station = "Baleine de Pain de Sucre",
+           Source  = "Rapport_Bouchon_2024") %>%
+    left_join(dates_bouchon_oursins, by = "Annee") %>%
+    select(Station, Date, Annee, Densite_m2, Source)
+
+  # Equivalent moderne : densite totale tous oursins confondus (somme de
+  # l'abondance macrofaune sur l'ensemble des quadrats, 1 m² chacun,
+  # 60 quadrats attendus par station x annee). NB : Densite_OURSINS_taxons
+  # (calculee ailleurs pour d'autres besoins) ne donne une densite
+  # correcte que pour Diadema antillarum - on ne l'utilise donc pas ici,
+  # on recalcule directement la densite totale depuis OURSINS.
+  Oursins_modernes <- OURSINS %>%
+    mutate(Annee = as.numeric(as.character(Annee))) %>%
+    group_by(Station, Annee) %>%
+    summarise(
+      Effectif_total = sum(REPLICAT_Abondance_macrofaune_Protocole_Quadrat_._suivi_cible, na.rm = TRUE),
+      n_quadrats = n(),
+      .groups = "drop"
+    ) %>%
+    mutate(Densite_m2 = round(Effectif_total / n_quadrats, 3),
+           Date = as.Date(paste0(Annee, "-01-01")),
+           Source = "Extraction_ReefDB_Quadrat") %>%
+    select(Station, Date, Annee, Densite_m2, Source)
+
+  Oursins_longue <- bind_rows(Oursins_historique, Oursins_modernes) %>%
+    left_join(Oursins_variabilite_moderne, by = c("Station", "Annee")) %>%
+    mutate(Oursins_sd = ifelse(Source == "Extraction_ReefDB_Quadrat", Oursins_sd, NA_real_)) %>%
+    arrange(Station, Annee)
+
+  cat("\nApercu - Oursins_longue (densite totale tous taxons) :\n")
+  print(Oursins_longue, n = Inf)
+
+  plot_oursins_historique <- ggplot(Oursins_longue, aes(x = Annee, y = Densite_m2, colour = Station, shape = Source, group = Station)) +
+    geom_line(linewidth = 0.7, alpha = 0.6) +
+    geom_errorbar(aes(ymin = pmax(Densite_m2 - Oursins_sd, 0), ymax = Densite_m2 + Oursins_sd),
+                  width = 0.3, alpha = 0.5, na.rm = TRUE, show.legend = FALSE) +
+    geom_point(size = 2.8) +
+    scale_shape_source() +
+    theme_classic() +
+    labs(title = str_wrap("Evolution de la densite totale d'oursins (tous taxons confondus)", width = 45),
+         subtitle = "Rond = extraction ReefDB (quadrat) ; carre = rapport Bouchon 2024 (Baleine uniquement)\nBarres d'erreur = ecart-type inter-quadrats (annees d'extraction uniquement)",
+         x = "", y = "Oursins / m2") +
+    theme(
+      plot.title = element_text(face = "bold", size = 13, hjust = 0.5),
+      plot.title.position = "plot",
+      plot.subtitle = element_text(size = 7.5, hjust = 0.5, face = "italic"),
+      axis.text = element_text(size = 10, face = "bold"),
+      legend.title = element_blank(),
+      panel.background  = element_rect(fill = "transparent", colour = NA),
+      plot.background   = element_rect(fill = "transparent", colour = NA),
+      legend.background = element_rect(fill = "transparent", colour = NA),
+      legend.key        = element_rect(fill = "transparent", colour = NA)
+    )
+
+  dir.create("R_PLOT/QUADRATS OURSINS/Evolution densite oursins", showWarnings = FALSE, recursive = TRUE)
+  ggsave("R_PLOT/QUADRATS OURSINS/Evolution densite oursins/Evolution_2018_2026_oursins.png",
+         plot_oursins_historique, width = 18, height = 13, dpi = 300, units = "cm", bg = "transparent")
+
+  ## Un diagramme en barres par station, TOUTES annees (2018, 2020, 2022,
+  # 2023, 2024, 2026...) : memes donnees que le graphique global ci-dessus
+  # (Oursins_longue = extraction + rapport Bouchon). NB : l'historique
+  # Bouchon ne concerne que Baleine de Pain de Sucre - Ilet Coco n'a donc
+  # que les annees d'extraction ReefDB.
+  tracer_evolution_station_barres(
+    df              = Oursins_longue,
+    col_valeur      = "Densite_m2",
+    col_sd          = "Oursins_sd",
+    titre           = "Evolution de la densite d'oursins",
+    label_y         = "Oursins / m²",
+    dossier         = "R_PLOT/QUADRATS OURSINS/Evolution densite oursins",
+    prefixe_fichier = "Evolution_OURSINS_",
+    decimales       = 2
+  )
+
+} else {
+  warning("Fichier '", FICHIER_BOUCHON_OURSINS, "' introuvable - historique oursins non integre.")
+  Oursins_longue <- NULL
+}
+```
+
+
+#####2.1.2.4 Etat de santé général (OK)
+```{r}
+# NB : la colonne REPLICAT_Etat_de_sante (score continu par colonie,
+# protocole BELT classique) n'existe pas dans l'extraction LIT-BENTHOS -
+# elle ne sera donc jamais renseignee tant qu'un protocole BELT dedie
+# n'aura pas ete integre (section 1.2, actuellement vide). A la place,
+# ce graphique utilise les seules donnees de sante corallienne
+# reellement presentes dans l'extraction LIT : les points ou une
+# necrose/un blanchissement a ete releve (colonne
+# REPLICAT_Recouvrement_necrose_, cf. section 1.1, table
+# Proportion_blanchissement_complet). ATTENTION : ce sont des
+# observations OPPORTUNISTES et TRES PEU NOMBREUSES (quelques points
+# par campagne, pas un recensement systematique de colonies comme un
+# vrai protocole BELT) - a interpreter comme un signal d'alerte
+# ponctuel, pas comme un indicateur d'etat de sante representatif de
+# toute la station.
+save_directory <- "R_PLOT/BELT CORAUX/Etat de sante general"
+dir.create(save_directory, showWarnings = FALSE, recursive = TRUE)
+
+if (nrow(Necrose_classes) > 0) {
+
+  Necrose_classes_plot <- Necrose_classes %>%
+    mutate(Necrose_classe = factor(Necrose_classe,
+                                    levels = c("0%", "1 - 25%", "26 - 50%", "51 - 75%", "76 - 100%")))
+
+  for (station_value in unique(Necrose_classes_plot$Station)) {
+
+    df_station <- Necrose_classes_plot %>% filter(Station == station_value)
+    plot_name <- gsub(" ", "_", paste0("Etat_de_sante_", station_value))
+
+    plot_necrose <- ggplot(df_station, aes(x = factor(Annee), y = n_points, fill = Necrose_classe)) +
+      geom_col(position = position_dodge(width = 0.7, preserve = "single"), width = 0.6) +
+      geom_text(aes(label = n_points), position = position_dodge(width = 0.7, preserve = "single"),
+                vjust = -0.5, size = 3, fontface = "bold") +
+      scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.12))) +
+      scale_fill_manual(values = c("0%" = "seagreen3", "1 - 25%" = "khaki2", "26 - 50%" = "orange",
+                                    "51 - 75%" = "orangered3", "76 - 100%" = "darkred"), drop = FALSE) +
+      theme_classic() +
+      labs(title = str_wrap(paste("Necrose/blanchissement observes -", station_value), width = 45),
+           subtitle = "Observations opportunistes ponctuelles (protocole LIT) - pas un recensement systematique",
+           x = "", y = "Nombre de points observes") +
+      theme(
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
+        plot.title.position = "plot",
+        plot.subtitle = element_text(size = 7, hjust = 0.5, face = "italic"),
+        axis.text = element_text(size = 10, face = "bold"),
+        legend.title = element_blank(),
+        panel.background  = element_rect(fill = "transparent", colour = NA),
+        plot.background   = element_rect(fill = "transparent", colour = NA),
+        legend.background = element_rect(fill = "transparent", colour = NA),
+        legend.key        = element_rect(fill = "transparent", colour = NA)
+      )
+
+    ggsave(file.path(save_directory, paste0(plot_name, ".png")),
+           plot_necrose, width = 16, height = 11, dpi = 300, units = "cm", bg = "transparent")
+  }
+} else {
+  cat("\nAucun point de necrose/blanchissement releve dans l'extraction - pas de graphique genere.\n")
+}
+```
+
+
+
+#####2.1.2.5 Evolution des coraux (BELT CORAIL) : abondance, diversite, etat de sante
+```{r}
+# Une figure par station, 3 graphiques empiles :
+#   (1) abondance de colonies coralliennes / 10 m² (moyenne +/- ET des replicats)
+#   (2) diversite relative des especes (% des colonies)
+#   (3) etat de sante des colonies (sain, necrose, blanchissement, maladies...)
+# Chaque graphique est aussi enregistre seul.
+if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
+  cat("\n!!! Aucune donnee BELT CORAIL disponible (cf. messages de la section 1.2) - pas de graphique BELT.\n")
+} else {
+
+  Palette_etat_sante <- c("Sain" = "seagreen3", "Necrose" = "khaki2", "SCTLD" = "darkorange2",
+                           "Autres_Maladies" = "orange3", "Blanchissement" = "lightskyblue1",
+                           "Mort_Recent" = "orangered3", "Mort_Ancien" = "grey30")
+  Libelles_etat_sante <- c("Sain" = "Sain", "Necrose" = "Necrose", "SCTLD" = "SCTLD",
+                            "Autres_Maladies" = "Autres maladies", "Blanchissement" = "Blanchissement",
+                            "Mort_Recent" = "Mort recent", "Mort_Ancien" = "Mort ancien")
+  # etats presents dans les donnees mais absents de la palette -> gris
+  etats_inconnus <- setdiff(unique(as.character(Etat_sante_BELT$Etat_sante)), names(Palette_etat_sante))
+  if (length(etats_inconnus) > 0) {
+    Palette_etat_sante <- c(Palette_etat_sante, setNames(rep("grey70", length(etats_inconnus)), etats_inconnus))
+    Libelles_etat_sante <- c(Libelles_etat_sante, setNames(etats_inconnus, etats_inconnus))
+  }
+
+  # palette especes : couleurs de Palette_taxons_coralliens quand l'espece
+  # y figure, couleurs automatiques distinctes sinon
+  if (!is.null(Diversite_BELT)) {
+    taxons_belt <- sort(unique(Diversite_BELT$Taxon))
+    Palette_taxons_BELT <- setNames(unname(Palette_taxons_coralliens[taxons_belt]), taxons_belt)
+    manquants <- is.na(Palette_taxons_BELT)
+    if (any(manquants)) {
+      Palette_taxons_BELT[manquants] <- grDevices::hcl.colors(max(sum(manquants), 2), "Dark 3")[seq_len(sum(manquants))]
+    }
+  }
+
+  theme_belt <- theme_classic() +
+    theme(
+      plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
+      plot.title.position = "plot",
+      plot.subtitle = element_text(size = 7.5, hjust = 0.5, face = "italic"),
+      axis.text = element_text(size = 10, face = "bold"),
+      axis.title.y = element_text(size = 10, face = "bold"),
+      legend.position = "bottom",
+      legend.title = element_blank(),
+      legend.text = element_text(size = 8.5),
+      legend.key.size = unit(0.4, "cm")
+    ) +
+    fond_transparent
+
+  dossier_belt <- "R_PLOT/BELT CORAUX/Evolution_coraux"
+  dir.create(dossier_belt, showWarnings = FALSE, recursive = TRUE)
+  dir.create("R_PLOT/BELT CORAUX/Composition_sante", showWarnings = FALSE, recursive = TRUE)
+
+  stations_belt <- unique(c(Abondance_BELT$Station, Etat_sante_BELT$Station))
+
+  for (station_value in stations_belt) {
+
+    nom_station <- gsub(" ", "_", station_value)
+    graphs_station <- list()
+
+    ## (1) Abondance / 10 m² +/- ET -----------------------------------------
+    df_ab <- if (is.null(Abondance_BELT)) NULL else Abondance_BELT %>% filter(Station == station_value)
+    if (!is.null(df_ab) && nrow(df_ab) > 0) {
+      df_ab <- df_ab %>%
+        mutate(y_haut = Densite_moy_10m2 + replace_na(Densite_ET_10m2, 0),
+               etiquette = formatC(Densite_moy_10m2, format = "f", digits = 1, decimal.mark = ","))
+
+      p_abondance <- ggplot(df_ab, aes(x = factor(Annee), y = Densite_moy_10m2)) +
+        geom_col(width = 0.6, fill = "lightsalmon3") +
+        geom_errorbar(aes(ymin = pmax(Densite_moy_10m2 - Densite_ET_10m2, 0),
+                          ymax = Densite_moy_10m2 + Densite_ET_10m2),
+                      width = 0.2, linewidth = 0.5, na.rm = TRUE) +
+        geom_text(aes(y = y_haut, label = etiquette), vjust = -0.6, size = 3.3, fontface = "bold") +
+        # effectif de replicats rappele dans la barre (si la place)
+        geom_text(data = ~ subset(., Densite_moy_10m2 >= 0.12 * max(y_haut)),
+                  aes(y = Densite_moy_10m2 / 2, label = paste0("n = ", n_replicats)),
+                  size = 2.6, colour = "white", fontface = "italic") +
+        scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.15))) +
+        labs(title = str_wrap(paste("Abondance des coraux -", station_value), width = 50),
+             subtitle = paste0("Colonies vivantes / 10 m² (moyenne +/- ecart-type des replicats BELT 10 x 1 m)",
+                               if (length(ETATS_EXCLUS_ABONDANCE) > 0)
+                                 paste0(" - hors ", paste(ETATS_EXCLUS_ABONDANCE, collapse = ", ")) else ""),
+             x = "", y = "Colonies / 10 m²") +
+        theme_belt
+
+      graphs_station$abondance <- p_abondance
+      ggsave(file.path(dossier_belt, paste0("1_Abondance_coraux_", nom_station, ".png")),
+             p_abondance, width = 16, height = 11, dpi = 300, units = "cm", bg = "transparent")
+    }
+
+    ## (2) Diversite relative des especes ----------------------------------
+    if (!is.null(Diversite_BELT)) {
+      df_div <- Diversite_BELT %>% filter(Station == station_value)
+      if (nrow(df_div) > 0) {
+        df_div <- df_div %>%
+          mutate(Taxon = factor(Taxon, levels = rev(taxons_belt))) %>%
+          ajouter_position_etiquettes(Annee, Taxon, Pourcentage) %>%
+          mutate(
+            etiquette = etiquette_si_place(Pourcentage, 100, paste0(round(Pourcentage), "%"), frac_min = 0.05),
+            couleur_texte = choisir_couleur_texte(Palette_taxons_BELT[as.character(Taxon)])
+          )
+        indices_station <- Indices_diversite_BELT %>% filter(Station == station_value) %>%
+          arrange(Annee) %>%
+          mutate(txt = paste0(Annee, " : S = ", Richesse, ", H' = ", Shannon,
+                              ifelse(is.na(Pielou), "", paste0(", J = ", Pielou))))
+
+        p_diversite <- ggplot(df_div, aes(x = factor(Annee), y = Pourcentage, fill = Taxon)) +
+          geom_col(width = 0.6) +
+          geom_text(data = ~ subset(., etiquette != ""), aes(y = y_label, label = etiquette, colour = couleur_texte),
+                    size = 2.9, fontface = "bold", show.legend = FALSE) +
+          scale_colour_identity() +
+          scale_fill_manual(values = Palette_taxons_BELT, drop = TRUE) +
+          scale_y_continuous(expand = expansion(mult = c(0, 0.02))) +
+          labs(title = str_wrap(paste("Diversite relative des especes coralliennes -", station_value), width = 50),
+               subtitle = paste0("% des colonies recensees ; S = richesse, H' = Shannon, J = Pielou\n",
+                                 paste(indices_station$txt, collapse = "  |  ")),
+               x = "", y = "Colonies (%)") +
+          theme_belt +
+          theme(legend.text = element_text(size = 7.5, face = "italic")) +
+          guides(fill = guide_legend(ncol = 3, reverse = TRUE))
+
+        graphs_station$diversite <- p_diversite
+        ggsave(file.path(dossier_belt, paste0("2_Diversite_relative_", nom_station, ".png")),
+               p_diversite, width = 18, height = 15, dpi = 300, units = "cm", bg = "transparent")
+      }
+    }
+
+    ## (3) Etat de sante (necrose, blanchissement, maladies...) -------------
+    df_sante <- if (is.null(Etat_sante_BELT)) NULL else Etat_sante_BELT %>% filter(Station == station_value)
+    if (!is.null(df_sante) && nrow(df_sante) > 0) {
+      df_sante <- df_sante %>%
+        mutate(Etat_sante = factor(Etat_sante, levels = names(Palette_etat_sante))) %>%
+        ajouter_position_etiquettes(Annee, Etat_sante, Pourcentage) %>%
+        mutate(
+          etiquette = etiquette_si_place(Pourcentage, 100, paste0(Pourcentage, "%")),
+          couleur_texte = choisir_couleur_texte(Palette_etat_sante[as.character(Etat_sante)])
+        )
+
+      p_sante <- ggplot(df_sante, aes(x = factor(Annee), y = Pourcentage, fill = Etat_sante)) +
+        geom_col(width = 0.6) +
+        geom_text(data = ~ subset(., etiquette != ""), aes(y = y_label, label = etiquette, colour = couleur_texte),
+                  size = 3.1, fontface = "bold", show.legend = FALSE) +
+        scale_colour_identity() +
+        scale_fill_manual(values = Palette_etat_sante, labels = Libelles_etat_sante, drop = TRUE) +
+        scale_y_continuous(expand = expansion(mult = c(0, 0.02))) +
+        labs(title = str_wrap(paste("Etat de sante des colonies coralliennes -", station_value), width = 50),
+             subtitle = "Necrose, blanchissement, maladies (SCTLD et autres), mortalite - % des colonies recensees",
+             x = "", y = "Colonies (%)") +
+        theme_belt +
+        guides(fill = guide_legend(nrow = 2, byrow = TRUE))
+
+      graphs_station$sante <- p_sante
+      ggsave(file.path(dossier_belt, paste0("3_Etat_sante_", nom_station, ".png")),
+             p_sante, width = 16, height = 13, dpi = 300, units = "cm", bg = "transparent")
+      # meme graphique, a l'ancien emplacement (compatibilite)
+      ggsave(file.path("R_PLOT/BELT CORAUX/Composition_sante", paste0("Composition_sante_", nom_station, ".png")),
+             p_sante, width = 16, height = 13, dpi = 300, units = "cm", bg = "transparent")
+    }
+
+    ## Figure combinee : abondance / diversite / sante, les uns sous les autres
+    if (length(graphs_station) > 0) {
+      hauteurs <- c(abondance = 1, diversite = 1.35, sante = 1.1)[names(graphs_station)]
+      figure_combinee <- cowplot::plot_grid(plotlist = graphs_station, ncol = 1,
+                                            align = "v", axis = "lr", rel_heights = hauteurs)
+      ggsave(file.path(dossier_belt, paste0("0_Synthese_coraux_BELT_", nom_station, ".png")),
+             figure_combinee, width = 18, height = 11 * sum(hauteurs), dpi = 300, units = "cm",
+             bg = "transparent", limitsize = FALSE)
+      print(figure_combinee)
+    }
+  }
+
+  ## Comparaison entre stations : taux d'atteinte et densite totale ----------
+  if (!is.null(Taux_atteinte_BELT) && nrow(Taux_atteinte_BELT) > 0) {
+    dodge_belt <- position_dodge(width = 0.7)
+
+    plot_taux_atteinte <- ggplot(Taux_atteinte_BELT, aes(x = factor(Annee), y = Pct_atteinte, fill = Station)) +
+      geom_col(position = dodge_belt, width = 0.6) +
+      geom_text(aes(label = paste0(Pct_atteinte, "%")), position = dodge_belt,
+                vjust = -0.5, size = 3, fontface = "bold") +
+      scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.12))) +
+      labs(title = str_wrap("Taux de colonies coralliennes atteintes (necrose, maladie, blanchissement, mortalite)", width = 55),
+           subtitle = "Protocole BELT : % de colonies non 'saines' parmi les colonies recensees",
+           x = "", y = "Colonies atteintes (%)") +
+      theme_belt +
+      theme(plot.title = element_text(face = "bold", size = 11, hjust = 0.5, lineheight = 1.1))
+
+    ggsave("R_PLOT/BELT CORAUX/Composition_sante/Taux_colonies_atteintes.png",
+           plot_taux_atteinte, width = 16, height = 11, dpi = 300, units = "cm", bg = "transparent")
+  }
+
+  if (!is.null(Abondance_BELT) && nrow(Abondance_BELT) > 0) {
+    dodge_belt <- position_dodge(width = 0.7)
+
+    plot_densite_belt <- ggplot(Abondance_BELT, aes(x = factor(Annee), y = Densite_moy_10m2, fill = Station)) +
+      geom_col(position = dodge_belt, width = 0.6) +
+      geom_errorbar(aes(ymin = pmax(Densite_moy_10m2 - Densite_ET_10m2, 0),
+                        ymax = Densite_moy_10m2 + Densite_ET_10m2),
+                    position = dodge_belt, width = 0.2, linewidth = 0.4, na.rm = TRUE) +
+      geom_text(aes(y = Densite_moy_10m2 + replace_na(Densite_ET_10m2, 0),
+                    label = formatC(Densite_moy_10m2, format = "f", digits = 1, decimal.mark = ",")),
+                position = dodge_belt, vjust = -0.5, size = 3, fontface = "bold") +
+      scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.12))) +
+      labs(title = "Abondance de colonies coralliennes (protocole BELT)",
+           subtitle = "Colonies / 10 m² : moyenne +/- ecart-type des replicats",
+           x = "", y = "Colonies / 10 m²") +
+      theme_belt
+
+    ggsave("R_PLOT/BELT CORAUX/Composition_sante/Densite_colonies.png",
+           plot_densite_belt, width = 16, height = 11, dpi = 300, units = "cm", bg = "transparent")
+  }
+}
+```
+
+
+#####2.1.2.6 Evolution des macroalgues (QUADRAT)
+```{r}
+Palette_taxons_macroalgues <- c(
+  "Dictyota"    = "seagreen4",
+  "Turbinaria"  = "darkolivegreen3",
+  "Stypopodium" = "goldenrod3",
+  "Lobophora"   = "palegreen3",
+  "Wrangelia"   = "orchid3",
+  "Sargassum"   = "chocolate3"
+)
+
+dir.create("R_PLOT/QUADRATS MACROALGUES/Evolution_recouvrement", showWarnings = FALSE, recursive = TRUE)
+
+## (a) Recouvrement global moyen +/- ET, par station
+plot_macro_global <- ggplot(Recouvrement_macroalgues_global,
+                             aes(x = factor(Annee), y = Recouvrement_moyen, fill = Station)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_errorbar(aes(ymin = pmax(Recouvrement_moyen - Recouvrement_ET, 0),
+                     ymax = Recouvrement_moyen + Recouvrement_ET),
+                position = position_dodge(width = 0.7), width = 0.2) +
+  geom_text(aes(y = Recouvrement_moyen + replace_na(Recouvrement_ET, 0),
+                label = paste0(formatC(Recouvrement_moyen, format = "f", digits = 1, decimal.mark = ","), "%")),
+            position = position_dodge(width = 0.7), vjust = -0.5, size = 3, fontface = "bold") +
+  scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.12))) +
+  theme_classic() +
+  labs(title = "Evolution du recouvrement en macroalgues (moyenne +/- ET)",
+       subtitle = "60 quadrats par station et par annee (2 transects x 30 quadrats)",
+       x = "", y = "Recouvrement moyen (%)") +
+  theme(
+    plot.title = element_text(face = "bold", size = 13, hjust = 0.5),
+    plot.title.position = "plot",
+    plot.subtitle = element_text(size = 8, hjust = 0.5, face = "italic"),
+    axis.text = element_text(size = 10, face = "bold"),
+    legend.title = element_blank(),
+    panel.background  = element_rect(fill = "transparent", colour = NA),
+    plot.background   = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key        = element_rect(fill = "transparent", colour = NA)
+  )
+
+ggsave("R_PLOT/QUADRATS MACROALGUES/Evolution_recouvrement/Recouvrement_global.png",
+       plot_macro_global, width = 18, height = 12, dpi = 300, units = "cm", bg = "transparent")
+
+## (b) Composition par taxon, une figure par station
+categories_macro_presentes <- intersect(names(Palette_taxons_macroalgues),
+                                         unique(Recouvrement_macroalgues_taxon$Taxon))
+
+for (station_value in unique(Recouvrement_macroalgues_taxon$Station)) {
+
+  df_station <- Recouvrement_macroalgues_taxon %>%
+    filter(Station == station_value) %>%
+    mutate(Taxon = factor(Taxon, levels = categories_macro_presentes)) %>%
+    ajouter_position_etiquettes(Annee, Taxon, Pourcentage_moyen) %>%
+    mutate(
+      etiquette = etiquette_si_place(Pourcentage_moyen, hauteur_empilee(Pourcentage_moyen, Annee),
+                                     paste0(round(Pourcentage_moyen, 1), "%")),
+      couleur_texte = choisir_couleur_texte(Palette_taxons_macroalgues[as.character(Taxon)])
+    )
+
+  plot_name <- gsub(" ", "_", paste0("Composition_macroalgues_", station_value))
+
+  plot_macro_taxon <- ggplot(df_station, aes(x = factor(Annee), y = Pourcentage_moyen, fill = Taxon)) +
+    geom_col(width = 0.6) +
+    geom_text(data = ~ subset(., etiquette != ""), aes(y = y_label, label = etiquette, colour = couleur_texte),
+              size = 3.2, fontface = "bold", show.legend = FALSE) +
+    scale_colour_identity() +
+    scale_fill_manual(values = Palette_taxons_macroalgues, drop = TRUE) +
+    theme_classic() +
+    labs(title = str_wrap(paste("Composition des macroalgues par taxon -", station_value), width = 50),
+         x = "", y = "Recouvrement moyen (%)") +
+    theme(
+      plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
+      plot.title.position = "plot",
+      axis.text = element_text(size = 10, face = "bold"),
+      legend.position = "bottom",
+      legend.title = element_blank(),
+      panel.background  = element_rect(fill = "transparent", colour = NA),
+      plot.background   = element_rect(fill = "transparent", colour = NA),
+      legend.background = element_rect(fill = "transparent", colour = NA),
+      legend.key        = element_rect(fill = "transparent", colour = NA)
+    )
+
+  ggsave(file.path("R_PLOT/QUADRATS MACROALGUES/Evolution_recouvrement", paste0(plot_name, ".png")),
+         plot_macro_taxon, width = 16, height = 13, dpi = 300, units = "cm", bg = "transparent")
+}
+```
+
+
+##2.2_POISSONS
+
+###2.2.1_Analyse de l'année en cours
+```{r}
+## Diagrammes circulaires - regime trophique (annee en cours) ------------
+# Style GPMG (section 4 du script d'analyse ichtyo) : proportions (%)
+# d'abondance et de biomasse par regime trophique, en camembert, une
+# figure par station - annee la plus recente uniquement (la version
+# multi-annees existe en 2.2.2 sous forme de barres empilees, plus
+# lisible pour une serie temporelle).
+Regime_trophique_pct_ANNEE <- REPLICAT_Regime_trophique_POISSONS_ANNEE_MEAN %>%
+  filter(!is.na(Regime_trophique), Regime_trophique != "") %>%
+  group_by(Station) %>%
+  mutate(
+    Abondance_pourcent = round(100 * Abondance_totale / sum(Abondance_totale), 1),
+    Biomasse_pourcent  = round(100 * Biomasse_totale / sum(Biomasse_totale), 1)
+  ) %>%
+  ungroup() %>%
+  mutate(Regime_trophique = factor(Regime_trophique,
+                                    levels = c("Piscivore", "Carnivore2", "Carnivore1",
+                                               "Omnivore", "Planctonophage", "Herbivore")))
+
+dir.create("R_PLOT/POISSONS/Regimes_trophiques_annee_en_cours", showWarnings = FALSE, recursive = TRUE)
+
+for (station_value in unique(Regime_trophique_pct_ANNEE$Station)) {
+
+  donnees_station <- Regime_trophique_pct_ANNEE %>% filter(Station == station_value)
+
+  plot_camembert_abondance <- ggplot(donnees_station, aes(x = "", y = Abondance_pourcent, fill = Regime_trophique)) +
+    geom_bar(stat = "identity", width = 1, color = "white") +
+    geom_label_repel(aes(label = paste0(round(Abondance_pourcent), "%")),
+                      position = position_stack(vjust = 0.5), size = 3.3,
+                      show.legend = FALSE, colour = "black", fontface = "bold") +
+    coord_polar(theta = "y") +
+    theme_void() +
+    scale_fill_manual(values = Palette_regime_trophique) +
+    labs(title = str_wrap(paste("Composition trophique (abondance) -", station_value), width = 45),
+         subtitle = paste("Annee", max(donnees_station$Annee, na.rm = TRUE)),
+         fill = NULL) +
+    theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 12),
+          plot.subtitle = element_text(hjust = 0.5, size = 9, face = "italic"),
+          legend.position = "bottom",
+          panel.background  = element_rect(fill = "transparent", colour = NA),
+          plot.background   = element_rect(fill = "transparent", colour = NA),
+          legend.background = element_rect(fill = "transparent", colour = NA),
+          legend.key        = element_rect(fill = "transparent", colour = NA)) +
+    guides(fill = guide_legend(reverse = TRUE, nrow = 2))
+
+  ggsave(file.path("R_PLOT/POISSONS/Regimes_trophiques_annee_en_cours",
+                    gsub(" ", "_", paste0("Regime_abondance_", station_value, ".png"))),
+         plot_camembert_abondance, width = 14, height = 14, dpi = 300, units = "cm", bg = "transparent")
+
+  plot_camembert_biomasse <- ggplot(donnees_station, aes(x = "", y = Biomasse_pourcent, fill = Regime_trophique)) +
+    geom_bar(stat = "identity", width = 1, color = "white") +
+    geom_label_repel(aes(label = paste0(round(Biomasse_pourcent), "%")),
+                      position = position_stack(vjust = 0.5), size = 3.3,
+                      show.legend = FALSE, colour = "black", fontface = "bold") +
+    coord_polar(theta = "y") +
+    theme_void() +
+    scale_fill_manual(values = Palette_regime_trophique) +
+    labs(title = str_wrap(paste("Composition trophique (biomasse) -", station_value), width = 45),
+         subtitle = paste("Annee", max(donnees_station$Annee, na.rm = TRUE)),
+         fill = NULL) +
+    theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 12),
+          plot.subtitle = element_text(hjust = 0.5, size = 9, face = "italic"),
+          legend.position = "bottom",
+          panel.background  = element_rect(fill = "transparent", colour = NA),
+          plot.background   = element_rect(fill = "transparent", colour = NA),
+          legend.background = element_rect(fill = "transparent", colour = NA),
+          legend.key        = element_rect(fill = "transparent", colour = NA)) +
+    guides(fill = guide_legend(reverse = TRUE, nrow = 2))
+
+  ggsave(file.path("R_PLOT/POISSONS/Regimes_trophiques_annee_en_cours",
+                    gsub(" ", "_", paste0("Regime_biomasse_", station_value, ".png"))),
+         plot_camembert_biomasse, width = 14, height = 14, dpi = 300, units = "cm", bg = "transparent")
+}
+```
+
+
+###2.2.2_Analyse temporelle (Evolution) 
+
+#####2.2.2.1_Evolution des indicateurs poissons (historique inclus)
+```{r}
+# --- Graphiques ------------------------------------------------------
+if (!is.null(BDD_evolution_poissons)) {
+
+  BDD_poissons_long <- BDD_evolution_poissons %>%
+    select(Station, Date, Annee, Source, Richesse_specifique, Densite_100m2,
+           Biomasse_kg_ha, Pct_juveniles, Nb_especes_juveniles) %>%
+    pivot_longer(cols = c(Richesse_specifique, Densite_100m2, Biomasse_kg_ha,
+                           Pct_juveniles, Nb_especes_juveniles),
+                 names_to = "Indicateur", values_to = "Valeur") %>%
+    mutate(Indicateur = factor(Indicateur, levels = c(
+      "Richesse_specifique", "Densite_100m2", "Biomasse_kg_ha",
+      "Pct_juveniles", "Nb_especes_juveniles"
+    ), labels = c(
+      "Richesse specifique (nb especes)", "Densite (ind./100 m2)",
+      "Biomasse (kg/ha)", "Part de juveniles (%)", "Especes avec juveniles (nb)"
+    )))
+
+  plot_poissons_indic <- ggplot(BDD_poissons_long, aes(x = Annee, y = Valeur, colour = Station, shape = Source, group = Station)) +
+    geom_line(linewidth = 0.6, alpha = 0.6) +
+    geom_point(size = 2.5) +
+    # NB : sans echelle explicite, ggplot attribuait le TRIANGLE (2e forme
+    # par defaut) au rapport Bouchon, alors que le sous-titre annoncait un
+    # carre - formes desormais fixees (cf. Formes_source, section 2.1.2.1)
+    scale_shape_source() +
+    geom_text_repel(aes(label = ifelse(is.na(Valeur), "", formatC(Valeur, format = "fg", digits = 3, decimal.mark = ","))),
+                    size = 2.4, show.legend = FALSE, min.segment.length = 0.3, seed = 1) +
+    facet_wrap(~Indicateur, scales = "free_y", ncol = 2) +
+    labs(title = "Evolution des indicateurs poissons (2018-2026)",
+         subtitle = "Rond = extraction ReefDB (BELT) ; carre = rapport Bouchon 2024 (Baleine uniquement)",
+         x = "", y = "") +
+    theme_classic() +
+    theme(
+      plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+      plot.title.position = "plot",
+      plot.subtitle = element_text(size = 9, hjust = 0.5, face = "italic"),
+      strip.text = element_text(face = "bold", size = 10),
+      axis.text = element_text(size = 9, face = "bold"),
+      legend.title = element_blank(),
+      panel.background  = element_rect(fill = "transparent", colour = NA),
+      plot.background   = element_rect(fill = "transparent", colour = NA),
+      legend.background = element_rect(fill = "transparent", colour = NA),
+      legend.key        = element_rect(fill = "transparent", colour = NA),
+      strip.background  = element_rect(fill = "transparent", colour = NA)
+    )
+
+  dir.create("R_PLOT/POISSONS/Evolution_indicateurs", showWarnings = FALSE, recursive = TRUE)
+  ggsave("R_PLOT/POISSONS/Evolution_indicateurs/Evolution_indicateurs_poissons.png",
+         plot_poissons_indic, width = 22, height = 16, dpi = 300, units = "cm", bg = "transparent")
+}
+
+# --- Structure trophique (historique + extraction 2022/2026) -----------
+if (!is.null(Trophique_historique)) {
+
+  Palette_trophique <- c("He" = "seagreen3", "Om" = "goldenrod2", "Pl" = "steelblue3",
+                          "C1" = "lightsalmon2", "C2" = "orangered3", "Pi" = "grey30")
+
+  dir.create("R_PLOT/POISSONS/Structure_trophique_historique", showWarnings = FALSE, recursive = TRUE)
+
+  for (param in unique(Trophique_historique$Paramètre)) {
+    for (station_value in unique(Trophique_historique$Station)) {
+
+      df_param <- Trophique_historique %>%
+        filter(Paramètre == param, Station == station_value)
+
+      if (nrow(df_param) == 0) next
+
+      df_param <- df_param %>%
+        filter(!is.na(Pourcentage)) %>%
+        mutate(Groupe_trophique = factor(Groupe_trophique, levels = names(Palette_trophique))) %>%
+        ajouter_position_etiquettes(Annee, Groupe_trophique, Pourcentage) %>%
+        mutate(
+          etiquette = etiquette_si_place(Pourcentage, hauteur_empilee(Pourcentage, Annee),
+                                         paste0(round(Pourcentage), "%")),
+          couleur_texte = choisir_couleur_texte(Palette_trophique[as.character(Groupe_trophique)])
+        )
+
+      plot_name <- gsub(" ", "_", paste0("Structure_trophique_", param, "_", station_value))
+
+      plot_trophique <- ggplot(df_param, aes(x = factor(Annee), y = Pourcentage, fill = Groupe_trophique)) +
+        geom_col(width = 0.7) +
+        geom_text(data = ~ subset(., etiquette != ""), aes(y = y_label, label = etiquette, colour = couleur_texte),
+                  size = 3, fontface = "bold", show.legend = FALSE) +
+        scale_colour_identity() +
+        scale_fill_manual(values = Palette_trophique,
+                           labels = c("He" = "Herbivores", "Om" = "Omnivores", "Pl" = "Planctonophages",
+                                      "C1" = "Carnivores 1", "C2" = "Carnivores 2", "Pi" = "Piscivores")) +
+        labs(title = str_wrap(paste0("Structure trophique (", param, ") - ", station_value), width = 55),
+             subtitle = "2018-2024 = rapport Bouchon 2024 ; 2022/2026 = extraction ReefDB (BELT)",
+             x = "", y = "Pourcentage (%)") +
+        theme_classic() +
+        theme(
+          plot.title = element_text(face = "bold", size = 12, hjust = 0.5, lineheight = 1.1),
+          plot.title.position = "plot",
+          plot.subtitle = element_text(size = 8, hjust = 0.5, face = "italic"),
+          axis.text = element_text(size = 10, face = "bold"),
+          legend.position = "bottom",
+          legend.title = element_blank(),
+          panel.background  = element_rect(fill = "transparent", colour = NA),
+          plot.background   = element_rect(fill = "transparent", colour = NA),
+          legend.background = element_rect(fill = "transparent", colour = NA),
+          legend.key        = element_rect(fill = "transparent", colour = NA)
+        )
+
+      ggsave(file.path("R_PLOT/POISSONS/Structure_trophique_historique", paste0(plot_name, ".png")),
+             plot_trophique, width = 16, height = 12, dpi = 300, units = "cm", bg = "transparent")
+    }
+  }
+}
+```
+
+
+#####2.2.2.2_ Descripteurs complementaires et structure de taille (POISSONS)
+```{r}
+# --- Graphiques descripteurs generaux (MTL, Shannon, Pielou) -----------
+# NB : ces 3 indicateurs n'ont pas d'equivalent dans le rapport Bouchon
+# 2024 (Poissons_indicateurs ne les donne pas) - extraction seule.
+Descripteurs_long <- Description_POISSONS_Station %>%
+  select(Station, Annee, MTL, Shannon_div_index, Pielou_equ_index) %>%
+  pivot_longer(cols = c(MTL, Shannon_div_index, Pielou_equ_index),
+               names_to = "Indicateur", values_to = "Valeur") %>%
+  mutate(Indicateur = factor(Indicateur,
+    levels = c("MTL", "Shannon_div_index", "Pielou_equ_index"),
+    labels = c("MTL", "Shannon (H)", "Pielou (J)")))
+
+plot_descripteurs <- ggplot(Descripteurs_long, aes(x = factor(Annee), y = Valeur, fill = Station)) +
+  geom_col(position = position_dodge(width = 0.6), width = 0.6) +
+  geom_text(aes(label = formatC(Valeur, format = "f", digits = 2, decimal.mark = ",")),
+            position = position_dodge(width = 0.6), vjust = -0.5, size = 2.6, fontface = "bold") +
+  scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.12))) +
+  facet_wrap(~Indicateur, scales = "free_y", ncol = 3) +
+  theme_classic() +
+  labs(title = "Descripteurs ecologiques complementaires",
+       subtitle = "MTL = niveau trophique moyen ; H = indice de Shannon ; J = indice de Pielou",
+       x = "", y = "") +
+  theme(
+    plot.title = element_text(face = "bold", size = 13, hjust = 0.5),
+    plot.title.position = "plot",
+    plot.subtitle = element_text(size = 8, hjust = 0.5, face = "italic"),
+    strip.text = element_text(face = "bold", size = 10),
+    axis.text = element_text(size = 9, face = "bold"),
+    legend.title = element_blank(),
+    panel.background  = element_rect(fill = "transparent", colour = NA),
+    plot.background   = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key        = element_rect(fill = "transparent", colour = NA),
+    strip.background  = element_rect(fill = "transparent", colour = NA)
+  )
+
+dir.create("R_PLOT/POISSONS/Evolution_indicateurs", showWarnings = FALSE, recursive = TRUE)
+ggsave("R_PLOT/POISSONS/Evolution_indicateurs/Descripteurs_MTL_Shannon_Pielou.png",
+       plot_descripteurs, width = 22, height = 10, dpi = 300, units = "cm", bg = "transparent")
+
+# --- Structure de taille (stacked bar, comme la structure trophique) ----
+Palette_taille <- c("< 5 cm" = 'lightblue', "5 - 10 cm" = 'skyblue2',
+                     "10 - 20 cm" = 'dodgerblue3', "20 - 30 cm" = 'steelblue4',
+                     "30 - 40 cm" = 'mediumblue', "> 40 cm" = 'midnightblue')
+
+dir.create("R_PLOT/POISSONS/Structure_taille", showWarnings = FALSE, recursive = TRUE)
+
+for (station_value in unique(Taille_POISSONS_moderne$Station)) {
+
+  df_station <- Taille_POISSONS_moderne %>%
+    filter(Station == station_value) %>%
+    mutate(Taille_classe = factor(Taille_classe, levels = names(Palette_taille))) %>%
+    ajouter_position_etiquettes(Annee, Taille_classe, Abondance_pourcent) %>%
+    mutate(
+      etiquette = etiquette_si_place(Abondance_pourcent, hauteur_empilee(Abondance_pourcent, Annee),
+                                     paste0(round(Abondance_pourcent), "%")),
+      couleur_texte = choisir_couleur_texte(Palette_taille[as.character(Taille_classe)])
+    )
+
+  plot_name <- gsub(" ", "_", paste0("Structure_taille_", station_value))
+
+  plot_taille <- ggplot(df_station, aes(x = factor(Annee), y = Abondance_pourcent, fill = Taille_classe)) +
+    geom_col(width = 0.7) +
+    geom_text(data = ~ subset(., etiquette != ""), aes(y = y_label, label = etiquette, colour = couleur_texte),
+              size = 3, fontface = "bold", show.legend = FALSE) +
+    scale_colour_identity() +
+    scale_fill_manual(values = Palette_taille) +
+    labs(title = str_wrap(paste("Structure de taille des poissons -", station_value), width = 50),
+         x = "", y = "Abondance (%)") +
+    theme_classic() +
+    theme(
+      plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
+      plot.title.position = "plot",
+      axis.text = element_text(size = 10, face = "bold"),
+      legend.position = "bottom",
+      legend.title = element_blank(),
+      panel.background  = element_rect(fill = "transparent", colour = NA),
+      plot.background   = element_rect(fill = "transparent", colour = NA),
+      legend.background = element_rect(fill = "transparent", colour = NA),
+      legend.key        = element_rect(fill = "transparent", colour = NA)
+    )
+
+  ggsave(file.path("R_PLOT/POISSONS/Structure_taille", paste0(plot_name, ".png")),
+         plot_taille, width = 16, height = 12, dpi = 300, units = "cm", bg = "transparent")
+}
+```
+
+
+#####2.2.2.3 Analyses multivariees (POISSONS)
+Inspire du script d'analyse ichtyofaune GPMG (Grillon & Dahmani) : matrice de correlation entre especes, ACP sur les descripteurs de station et sur la communaute, NMDS avec especes structurantes (envfit), PERMANOVA (adonis2) et test d'homogeneite des dispersions (betadisper).  
+**Ces analyses portent ici sur seulement 4 points (2 stations x 2 annees)**, contre 12 stations sur plusieurs annees et habitats dans le script GPMG d'origine - la puissance statistique est tres limitee en l'etat. Elles sont conservees a visee exploratoire et pour que le code soit deja pret a mesure que le suivi GCRMN s'enrichira d'annees supplementaires.
+```{r}
+# ============================================================
+# ATTENTION GENERALE - PUISSANCE STATISTIQUE
+# ============================================================
+# Ces analyses multivariees (correlation, ACP, NMDS, PERMANOVA) sont
+# directement inspirees du script GPMG, mais celui-ci portait sur 12
+# stations x plusieurs annees x plusieurs habitats. Le suivi GCRMN de
+# Saint-Barthelemy ne compte pour l'instant que 2 stations x 2 annees
+# (4 points), ce qui est TRES insuffisant pour des conclusions robustes
+# (l'ACP par exemple n'a ici que 4 individus pour ~9 variables). Ces
+# sorties restent utiles a titre exploratoire et pour preparer le code
+# a mesure que le suivi s'enrichira d'annees supplementaires, mais
+# doivent etre interpretees avec une prudence extreme en l'etat actuel.
+
+dir.create("R_PLOT/POISSONS/Analyses_multivariees", showWarnings = FALSE, recursive = TRUE)
+
+# ------------------------------------------------------------
+# 1. Matrice de correlation entre abondances d'especes
+# ------------------------------------------------------------
+# Ne garde que les correlations fortes (|r| > 0.85) - avec 4 lignes
+# seulement, presque toutes les correlations seront mecaniquement
+# tres elevees (2 points suffisent a "aligner" une droite) : resultat
+# a but illustratif, pas un test statistique valide en l'etat.
+mat_cor_source <- mat_pool[, colSums(mat_pool) > 0, drop = FALSE]
+
+if (ncol(mat_cor_source) >= 2 && nrow(mat_cor_source) >= 3) {
+
+  cor_mat <- round(cor(mat_cor_source), 2)
+  cor_mat_filtered <- cor_mat
+  cor_mat_filtered[abs(cor_mat_filtered) < 0.85] <- NA
+  cor_mat_filtered[cor_mat_filtered == 1] <- NA
+  lignes_na   <- apply(cor_mat_filtered, 1, function(x) all(is.na(x)))
+  colonnes_na <- apply(cor_mat_filtered, 2, function(x) all(is.na(x)))
+  cor_mat_filtered <- cor_mat_filtered[!lignes_na, !colonnes_na, drop = FALSE]
+
+  if (nrow(cor_mat_filtered) >= 2) {
+    for (i in 1:nrow(cor_mat_filtered)) {
+      if (rownames(cor_mat_filtered)[i] == colnames(cor_mat_filtered)[i]) {
+        cor_mat_filtered[i, i] <- 1
+      }
+    }
+
+    Especes_regimes <- POISSONS %>% select(Taxon, Regime_trophique) %>% distinct()
+    Palette_regime_trophique <- c("Herbivore" = 'yellowgreen', "Planctonophage" = 'lightblue4',
+                                   "Omnivore" = 'dodgerblue', "Carnivore1" = 'orange',
+                                   "Carnivore2" = 'burlywood4', "Piscivore" = 'firebrick1')
+    species_cols <- colnames(cor_mat_filtered)
+    regimes_cols <- Especes_regimes$Regime_trophique[match(species_cols, Especes_regimes$Taxon)]
+    couleurs_tl  <- Palette_regime_trophique[match(regimes_cols, names(Palette_regime_trophique))]
+    couleurs_tl[is.na(couleurs_tl)] <- "grey40"
+
+    png("R_PLOT/POISSONS/Analyses_multivariees/Matrice_correlation_especes.png",
+        width = 20, height = 20, units = "cm", res = 300, bg = "transparent")
+    corrplot(cor_mat_filtered, type = "upper", tl.col = couleurs_tl,
+             title = "\nCorrelations fortes (|r|>0.85) entre abondances d'especes\n(indicatif seulement, n=4 points)",
+             na.label = " ", tl.srt = 45, tl.cex = 0.7, mar = c(0, 0, 3, 0))
+    dev.off()
+    cat("\nMatrice de correlation generee (", nrow(cor_mat_filtered), "especes retenues).\n")
+  } else {
+    cat("\nAucune paire d'especes avec |r|>0.85 - pas de matrice de correlation generee.\n")
+  }
+} else {
+  cat("\nPas assez de donnees pour la matrice de correlation.\n")
+}
+
+# ------------------------------------------------------------
+# 2. ACP sur les descripteurs generaux de station
+# ------------------------------------------------------------
+# individus = Station x Annee ; variables = descripteurs generaux
+if (nrow(Description_POISSONS_Station) >= 3) {
+
+  Data_acp <- Description_POISSONS_Station %>%
+    rename(Abondance = Abondance_totale,
+           Biomasse = Biomasse_totale_kg,
+           `Taille (moyenne)` = Taille_moyenne,
+           `Taille (ecart-type)` = Taille_sd,
+           `Richesse specifique` = Richesse_specifique,
+           `Shannon (div)` = Shannon_div_index,
+           `Pielou (equ)` = Pielou_equ_index) %>%
+    as.data.frame()
+  rownames(Data_acp) <- paste(Data_acp$Station, Data_acp$Annee, sep = "_")
+
+  acp_descripteurs <- PCA(Data_acp, scale.unit = TRUE, ncp = 5, graph = FALSE,
+                           quali.sup = which(names(Data_acp) %in% c("Programme", "Station", "Annee")))
+
+  var_plot_acp <- fviz_pca_var(acp_descripteurs, col.var = "black", repel = TRUE,
+                                title = "ACP - Variables", labelsize = 4) +
+    theme(plot.title = element_text(hjust = 0.5))
+
+  ind_plot_acp <- fviz_pca_ind(acp_descripteurs, geom = "point", habillage = "Station",
+                                title = "ACP - Individus (Station x Annee)") +
+    theme(legend.position = "top", legend.title = element_blank(),
+          plot.title = element_text(hjust = 0.5))
+
+  plot_acp_descripteurs <- grid.arrange(var_plot_acp, ind_plot_acp, nrow = 1,
+    top = grid::textGrob("ACP descripteurs poissons (n petit - a titre exploratoire)", gp = grid::gpar(fontface = "bold")))
+
+  ggsave("R_PLOT/POISSONS/Analyses_multivariees/ACP_descripteurs.png",
+         plot_acp_descripteurs, width = 24, height = 12, dpi = 300, units = "cm", bg = "transparent")
+  cat("\nACP descripteurs generee.\n")
+} else {
+  cat("\nPas assez de Station x Annee pour l'ACP descripteurs (minimum 3).\n")
+}
+
+# ------------------------------------------------------------
+# 3. ACP sur la communaute (especes)
+# ------------------------------------------------------------
+if (nrow(mat_pool) >= 3 && ncol(mat_cor_source) >= 2) {
+
+  Data_acp_especes <- as.data.frame(mat_cor_source)
+  Data_acp_especes$Station <- meta_pool$Station
+  rownames(Data_acp_especes) <- paste(meta_pool$Station, meta_pool$Annee, sep = "_")
+
+  acp_especes <- PCA(Data_acp_especes, scale.unit = TRUE, ncp = 5, graph = FALSE,
+                      quali.sup = which(names(Data_acp_especes) == "Station"))
+
+  ind_plot_acp_especes <- fviz_pca_ind(acp_especes, geom = "point", habillage = "Station",
+                                        title = "ACP especes - Individus (Station x Annee)") +
+    theme(legend.position = "top", legend.title = element_blank(),
+          plot.title = element_text(hjust = 0.5))
+
+  ggsave("R_PLOT/POISSONS/Analyses_multivariees/ACP_especes.png",
+         ind_plot_acp_especes, width = 16, height = 14, dpi = 300, units = "cm", bg = "transparent")
+  cat("\nACP especes generee.\n")
+}
+
+# ------------------------------------------------------------
+# 4. NMDS de la communaute (structure globale) + espece structurantes
+# ------------------------------------------------------------
+matrice_hel <- decostand(mat_pool, method = "hellinger")
+rownames(matrice_hel) <- paste(meta_pool$Station, meta_pool$Annee, sep = "_")
+
+set.seed(123)
+nmds <- tryCatch(
+  metaMDS(matrice_hel, distance = "bray", k = 2, trymax = 100, trace = FALSE),
+  error = function(e) { message("NMDS non calculable : ", conditionMessage(e)); NULL }
+)
+
+if (!is.null(nmds)) {
+
+  scores_df <- as.data.frame(nmds$points)
+  colnames(scores_df) <- c("NMDS1", "NMDS2")
+  scores_df$Station <- meta_pool$Station
+  scores_df$Annee   <- meta_pool$Annee
+
+  fit <- envfit(nmds, matrice_hel, perm = 999)
+  species_fit <- as.data.frame(scores(fit, display = "vectors"))
+  species_fit$Species <- rownames(species_fit)
+  species_fit$pval <- fit$vectors$pvals
+  species_fit$r2   <- fit$vectors$r
+  species_sig <- species_fit %>% filter(pval <= 0.05, r2 >= 0.3)
+  species_sig$NMDS1 <- species_sig$NMDS1 * 1.5
+  species_sig$NMDS2 <- species_sig$NMDS2 * 1.5
+
+  plot_nmds <- ggplot() +
+    geom_point(data = scores_df, aes(NMDS1, NMDS2, colour = Station, shape = factor(Annee)), size = 4) +
+    { if (nrow(species_sig) > 0)
+        geom_segment(data = species_sig, aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2),
+                     arrow = arrow(length = unit(0.25, "cm")), colour = "black")
+    } +
+    { if (nrow(species_sig) > 0)
+        geom_text_repel(data = species_sig, aes(NMDS1, NMDS2, label = Species), size = 3.5)
+    } +
+    theme_classic() +
+    labs(title = "NMDS - Communautes ichtyologiques",
+         subtitle = paste0("Stress = ", round(nmds$stress, 3),
+                            " (n = ", nrow(matrice_hel), " points - a interpreter avec prudence)"),
+         shape = "Annee") +
+    theme(
+      plot.title = element_text(face = "bold", size = 13, hjust = 0.5),
+      plot.subtitle = element_text(size = 9, hjust = 0.5, face = "italic"),
+      panel.background  = element_rect(fill = "transparent", colour = NA),
+      plot.background   = element_rect(fill = "transparent", colour = NA),
+      legend.background = element_rect(fill = "transparent", colour = NA),
+      legend.key        = element_rect(fill = "transparent", colour = NA)
+    )
+
+  ggsave("R_PLOT/POISSONS/Analyses_multivariees/NMDS.png",
+         plot_nmds, width = 18, height = 14, dpi = 300, units = "cm", bg = "transparent")
+  cat("\nNMDS generee - stress =", round(nmds$stress, 3), "\n")
+
+  # --------------------------------------------------------
+  # 5. PERMANOVA (adonis2) - effet Station sur la composition
+  # --------------------------------------------------------
+  # ATTENTION : seulement 2 stations x 2 annees (n=4) - la resolution du
+  # test de permutation est tres grossiere (peu de rearrangements
+  # possibles). A ne pas surinterpreter ; a reevaluer avec plus d'annees.
+  permanova_result <- adonis2(matrice_hel ~ Station, data = as.data.frame(meta_pool),
+                               method = "bray", permutations = 999)
+  cat("\nPERMANOVA (effet Station) :\n")
+  print(permanova_result)
+
+  # --------------------------------------------------------
+  # 6. Homogeneite des dispersions (betadisper)
+  # --------------------------------------------------------
+  bd <- betadisper(vegdist(matrice_hel, method = "bray"), meta_pool$Station)
+  cat("\nHomogeneite des dispersions (betadisper) :\n")
+  print(anova(bd))
+
+} else {
+  cat("\nNMDS non calculee (donnees insuffisantes ou non convergentes).\n")
+}
+```
+
+
+#####2.2.2.4 Correlations benthos-poissons
+```{r}
+# ------------------------------------------------------------
+# 7. Correlations benthos x poissons
+# ------------------------------------------------------------
+# Contrairement au script GPMG (ou benthos et poissons sont 2 analyses
+# separees qu'il faut recroiser manuellement), GCRMN a les deux volets
+# dans le meme pipeline : la fusion est donc directe par Station x Annee.
+# ATTENTION : seulement 4 points (2 stations x 2 annees d'extraction, les
+# seules annees ou benthos ET poissons sont disponibles simultanement) -
+# cor.test n'a ici pratiquement aucune puissance statistique. A visee
+# exploratoire uniquement, a reevaluer avec plus d'annees de suivi.
+dir.create("R_PLOT/POISSONS/Correlations_benthos_poissons", showWarnings = FALSE, recursive = TRUE)
+
+if (exists("Recouvrement_benthos_complet") && !is.null(Recouvrement_benthos_complet)) {
+
+  Benthos_wide <- Recouvrement_benthos_complet %>%
+    filter(Source == "Extraction_ReefDB_LIT") %>%
+    select(Station, Annee, LIT, Pourcentage_moyen) %>%
+    pivot_wider(names_from = LIT, values_from = Pourcentage_moyen, values_fill = 0)
+
+  Correlations_benthos_poissons <- Description_POISSONS_Station %>%
+    select(Station, Annee, Abondance_totale, Biomasse_totale_kg,
+           Richesse_specifique, Shannon_div_index, MTL) %>%
+    inner_join(Benthos_wide, by = c("Station", "Annee"))
+
+  cat("\nApercu - donnees fusionnees benthos x poissons :\n")
+  print(Correlations_benthos_poissons)
+
+  if (nrow(Correlations_benthos_poissons) >= 3) {
+
+    if ("Coraux durs" %in% names(Correlations_benthos_poissons)) {
+      test1 <- cor.test(Correlations_benthos_poissons$`Coraux durs`, Correlations_benthos_poissons$Biomasse_totale_kg)
+      cat("\ncor.test Coraux durs ~ Biomasse :\n"); print(test1)
+
+      p1 <- ggplot(Correlations_benthos_poissons, aes(`Coraux durs`, Biomasse_totale_kg)) +
+        geom_point(aes(colour = Station), size = 4) +
+        geom_smooth(method = "lm", colour = "black", fill = "grey70", se = TRUE) +
+        stat_cor(method = "pearson") +
+        theme_classic(base_size = 12) +
+        labs(title = "Coraux durs ~ Biomasse poissons",
+             subtitle = "n = 4 points - exploratoire, non significatif attendu",
+             x = "Recouvrement corail dur (%)", y = "Biomasse totale (kg)") +
+        theme(plot.title = element_text(face = "bold", hjust = 0.5),
+              plot.subtitle = element_text(size = 8, hjust = 0.5, face = "italic"),
+              panel.background  = element_rect(fill = "transparent", colour = NA),
+              plot.background   = element_rect(fill = "transparent", colour = NA))
+
+      ggsave("R_PLOT/POISSONS/Correlations_benthos_poissons/Corail_Biomasse.png",
+             p1, width = 16, height = 12, dpi = 300, units = "cm", bg = "transparent")
+    }
+
+    if ("Algues indicatrices d'eutrophisation (NIA)" %in% names(Correlations_benthos_poissons)) {
+      test2 <- cor.test(Correlations_benthos_poissons$`Algues indicatrices d'eutrophisation (NIA)`,
+                         Correlations_benthos_poissons$Richesse_specifique)
+      cat("\ncor.test NIA ~ Richesse specifique :\n"); print(test2)
+
+      p2 <- ggplot(Correlations_benthos_poissons, aes(`Algues indicatrices d'eutrophisation (NIA)`, Richesse_specifique)) +
+        geom_point(aes(colour = Station), size = 4) +
+        geom_smooth(method = "lm", colour = "black", fill = "grey70", se = TRUE) +
+        stat_cor(method = "pearson") +
+        theme_classic(base_size = 12) +
+        labs(title = "Algues indicatrices d'eutrophisation (NIA) ~ Richesse specifique",
+             subtitle = "n = 4 points - exploratoire, non significatif attendu",
+             x = "NIA (%)", y = "Richesse specifique (nb especes)") +
+        theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 11),
+              plot.subtitle = element_text(size = 8, hjust = 0.5, face = "italic"),
+              panel.background  = element_rect(fill = "transparent", colour = NA),
+              plot.background   = element_rect(fill = "transparent", colour = NA))
+
+      ggsave("R_PLOT/POISSONS/Correlations_benthos_poissons/NIA_Richesse.png",
+             p2, width = 16, height = 12, dpi = 300, units = "cm", bg = "transparent")
+    }
+
+  } else {
+    cat("\nPas assez de points communs benthos/poissons pour les correlations.\n")
+  }
+
+} else {
+  cat("\nRecouvrement_benthos_complet indisponible - correlations benthos/poissons ignorees.\n")
+}
+```
+
+
+#3_ Enregistrement BDD MODIF (BENTHOS + POISSONS)
+```{r}
+#Enregistrement de la BDD pour poster emmeline
+# Chemin du dossier et nom du fichier (remplacer par ton chemin)
+chemin_dossier <- "R_BDD"  
+# Spécifie ici le chemin du dossier
+nom_fichier <- "DATA_GCRMN_BENTHOS_MODIF.xlsx"
+chemin_complet <- file.path(chemin_dossier, nom_fichier)
+
+dir.create(chemin_dossier, showWarnings = FALSE, recursive = TRUE)
+
+# Créer un nouveau fichier Excel en mémoire
+wb <- createWorkbook()
+
+#BDD
+
+addWorksheet(wb, "BENTHOS_LIT_ANNEE")
+      writeData(wb, sheet = "BENTHOS_LIT_ANNEE", BENTHOS_LIT_ANNEE)
+      
+      addWorksheet(wb, "BENTHOS_LIT_EVOLUTION")
+      writeData(wb, sheet = "BENTHOS_LIT_EVOLUTION", BENTHOS_LIT_EVOLUTION)
+
+#### ANNEE
+      # Ajouter la première feuille avec la table "Composition_moyenne_substrat_complet"
+      addWorksheet(wb, "1.1 Nature recouvrement")
+      writeData(wb, sheet = "1.1 Nature recouvrement", Recouvrement_benthos_complet)
+      
+      # Ajouter la deuxième feuille avec la table "Recouvrement_tot"
+      addWorksheet(wb, "1.2 Detail couverture vivante")
+      writeData(wb, sheet = "1.2 Detail couverture vivante", Detail_couverture_vivante_complet)
+      
+      # Ajouter la deuxième feuille avec la table "Recouvrement_tot"
+      addWorksheet(wb, "1.3 Composition_substrat")
+      writeData(wb, sheet = "1.3 Composition_substrat", Composition_moyenne_substrat_complet_filtre)
+      
+      # Ajouter la deuxième feuille avec la table "Recouvrement_tot"
+      addWorksheet(wb, "1.4 Proportion_taxons_corail")
+      writeData(wb, sheet = "1.4 Proportion_taxons_corail", Taxons_coralliens)
+      
+      # Ajouter la deuxième feuille avec la table "Recouvrement_tot"
+      addWorksheet(wb, "1.5 Proportion_blanchi_néc")
+      writeData(wb, sheet = "1.5 Proportion_blanchi_néc", Proportion_blanchissement_complet)
+
+#### EVOLUTION
+      
+ # Ajouter la deuxième feuille avec la table "Recouvrement_tot"
+      addWorksheet(wb, "2.1 Evolution_Recouv_benthos")
+      writeData(wb, sheet = "2.1 Evolution_Recouv_benthos", Evolution_recouvrement_benthos)
+      
+       # Ajouter la deuxième feuille avec la table "Recouvrement_tot"
+      # NB : Densite_recrues (par quadrat, 2022/2026 seulement) a ete
+      # remplacee par Recrues_longue (serie longue 2002-2026, historique +
+      # extraction + ecart-type inter-quadrats) suite a la fusion des
+      # sections 2.1.2.2/2.1.2.3 - table plus complete pour ce meme export.
+      addWorksheet(wb, "2.2 Evolution_densité_recrues")
+      writeData(wb, sheet = "2.2 Evolution_densité_recrues", Recrues_longue)
+      
+       # Ajouter la deuxième feuille avec la table "Recouvrement_tot"
+      # NB : meme remplacement que ci-dessus pour les oursins (Oursins_longue
+      # au lieu de Densite_OURSINS_taxons, suite a la fusion 2.1.2.4/2.1.2.5)
+      addWorksheet(wb, "2.3 Evolution_densité_oursins")
+      writeData(wb, sheet = "2.3 Evolution_densité_oursins", Oursins_longue)
+      
+       # Ajouter la deuxième feuille avec la table "Recouvrement_tot"
+      addWorksheet(wb, "2.4 Etat_de_sante")
+      writeData(wb, sheet = "2.4 Etat_de_sante", Proportion_blanchissement_complet)
+
+       # Ajouter la deuxième feuille avec la table "Recouvrement_tot"
+      addWorksheet(wb, "2.5 Indicateur_benthos")
+      writeData(wb, sheet = "2.5 Indicateur_benthos", Indicateur_benthos)
+
+       # Ajouter la deuxième feuille avec la table "Recouvrement_tot"
+      addWorksheet(wb, "2.6 Indicateur_macroalgue")
+      writeData(wb, sheet = "2.6 Indicateur_macroalgue", Indicateur_macroalgue)
+
+      # Ajouter la deuxième feuille avec la table "Recouvrement_tot"
+      addWorksheet(wb, "2.7 Taxons_algaux ")
+      writeData(wb, sheet = "2.7 Taxons_algaux ", Taxons_algaux )
+
+      # Ajouter la table BELT CORAIL (etat de sante des colonies, protocole
+      # dedie) et le recouvrement macroalgues (protocole QUADRAT), toutes
+      # deux absentes de l'export precedent bien que deja calculees plus haut
+      if (exists("Etat_sante_BELT") && !is.null(Etat_sante_BELT)) {
+        addWorksheet(wb, "2.8 Etat_sante_BELT_CORAIL")
+        writeData(wb, sheet = "2.8 Etat_sante_BELT_CORAIL", Etat_sante_BELT)
+      }
+      if (exists("Abondance_BELT") && !is.null(Abondance_BELT)) {
+        addWorksheet(wb, "2.8b Abondance_BELT_10m2")
+        writeData(wb, sheet = "2.8b Abondance_BELT_10m2", Abondance_BELT)
+      }
+      if (exists("Diversite_BELT") && !is.null(Diversite_BELT)) {
+        addWorksheet(wb, "2.8c Diversite_BELT")
+        writeData(wb, sheet = "2.8c Diversite_BELT", Diversite_BELT)
+      }
+      if (exists("Recouvrement_macroalgues_taxon") && !is.null(Recouvrement_macroalgues_taxon)) {
+        addWorksheet(wb, "2.9 Recouvrement_macroalgues")
+        writeData(wb, sheet = "2.9 Recouvrement_macroalgues", Recouvrement_macroalgues_taxon)
+      }
+      
+# Enregistrer le fichier dans le dossier spécifié
+saveWorkbook(wb, chemin_complet, overwrite = TRUE)
+
+cat("Classeur BENTHOS enregistre :", chemin_complet, "\n")
+```
+
+#3bis_ Enregistrement BDD MODIF (POISSONS)
+Meme logique et meme convention de nommage des feuilles que le classeur BENTHOS ci-dessus (ANNEE = derniere annee de suivi uniquement ; EVOLUTION = toutes les annees / historique inclus quand disponible), applique aux tables POISSONS construites plus haut dans ce document (sections 1.6 a 1.6ter).
+```{r}
+nom_fichier_poissons <- "DATA_GCRMN_POISSONS_MODIF.xlsx"
+chemin_complet_poissons <- file.path(chemin_dossier, nom_fichier_poissons)
+
+wb_poissons <- createWorkbook()
+
+#BDD brute (meme convention que BENTHOS_LIT_ANNEE/EVOLUTION)
+addWorksheet(wb_poissons, "POISSONS_ANNEE")
+writeData(wb_poissons, sheet = "POISSONS_ANNEE", POISSONS %>% filter(Annee == max(Annee, na.rm = TRUE)))
+
+addWorksheet(wb_poissons, "POISSONS_EVOLUTION")
+writeData(wb_poissons, sheet = "POISSONS_EVOLUTION", POISSONS)
+
+#### ANNEE (derniere annee de suivi uniquement)
+addWorksheet(wb_poissons, "1.1 Regime_trophique")
+writeData(wb_poissons, sheet = "1.1 Regime_trophique", REPLICAT_Regime_trophique_POISSONS_ANNEE)
+
+addWorksheet(wb_poissons, "1.2 Famille")
+writeData(wb_poissons, sheet = "1.2 Famille", REPLICAT_Famille_POISSONS_ANNEE)
+
+addWorksheet(wb_poissons, "1.3 Taxon")
+writeData(wb_poissons, sheet = "1.3 Taxon", REPLICAT_Taxon_POISSONS_ANNEE)
+
+addWorksheet(wb_poissons, "1.4 Descripteurs_generaux")
+writeData(wb_poissons, sheet = "1.4 Descripteurs_generaux",
+          Description_POISSONS_Station %>% filter(Annee == max(Annee, na.rm = TRUE)))
+
+if (exists("Regime_trophique_pct_ANNEE")) {
+  addWorksheet(wb_poissons, "1.5 Regime_trophique_pct")
+  writeData(wb_poissons, sheet = "1.5 Regime_trophique_pct", Regime_trophique_pct_ANNEE)
+}
+
+#### EVOLUTION (toutes annees, historique inclus quand disponible)
+addWorksheet(wb_poissons, "2.1 Evolution_indicateurs")
+writeData(wb_poissons, sheet = "2.1 Evolution_indicateurs", BDD_evolution_poissons)
+
+addWorksheet(wb_poissons, "2.2 Structure_trophique_hist")
+writeData(wb_poissons, sheet = "2.2 Structure_trophique_hist", Trophique_historique)
+
+addWorksheet(wb_poissons, "2.3 Descripteurs_generaux")
+writeData(wb_poissons, sheet = "2.3 Descripteurs_generaux", Description_POISSONS_Station)
+
+addWorksheet(wb_poissons, "2.4 Evolution_Regime_trophique")
+writeData(wb_poissons, sheet = "2.4 Evolution_Regime_trophique", REPLICAT_Regime_trophique_POISSONS_EVOLUTION)
+
+addWorksheet(wb_poissons, "2.5 Evolution_Famille")
+writeData(wb_poissons, sheet = "2.5 Evolution_Famille", REPLICAT_Famille_POISSONS_EVOLUTION)
+
+addWorksheet(wb_poissons, "2.6 Evolution_Taxon")
+writeData(wb_poissons, sheet = "2.6 Evolution_Taxon", REPLICAT_Taxon_POISSONS_EVOLUTION)
+
+saveWorkbook(wb_poissons, chemin_complet_poissons, overwrite = TRUE)
+
+cat("Classeur POISSONS enregistre :", chemin_complet_poissons, "\n")
+```
+
+## Propositions d'amelioration (a discuter, non appliquees ici)
+
+- **BELT CORAUX (section 1.2)** : la fiche de saisie fournie (`SUIVI_GCRMN_BELT_CORAIL_2026.xlsx`) n'est utilisee que pour l'etat de sante des colonies (2.1.2.5). Elle contient aussi le comptage par espece (colonne `Taxon`) qui permettrait un calcul de densite et de richesse specifique par le protocole BELT, comparable a celui deja fait pour LIT-BENTHOS - a envisager si ce protocole devient recurrent d'une annee sur l'autre.
+- **Densite_OURSINS_taxons** : cette table (utilisee dans les graphiques anterieurs a la fusion 2.1.2.3) ne calcule une densite correcte que pour *Diadema antillarum* - les autres especes y restent a 0 quelle que soit leur abondance reelle. Elle n'est plus utilisee dans l'export ni dans les graphiques actuels, mais existe toujours dans l'environnement ; a corriger ou supprimer si elle doit resservir ailleurs.
+- **Coraux_descripteurs et Autres_indicateurs** (feuilles du rapport Bouchon 2024) restent inexploitees : la premiere donne une richesse/abondance corail comparable a BELT CORAUX, la seconde des tendances gorgones/eponges - utile en historique si ces compartiments doivent etre suivis plus finement.
+- **Classeur POISSONS** : `Description_POISSONS_Station` et `Trophique_historique` melangent extraction et historique dans une seule feuille (colonne `Source`) - a scinder en 2 feuilles distinctes si un usage downstream (ex. tableau croise dynamique) suppose des schemas identiques sans colonne `Source`.
+```
