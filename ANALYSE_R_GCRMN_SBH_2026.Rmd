@@ -1965,6 +1965,96 @@ sauver_graph(p, "LIT BENTHOS/Annee_en_cours", "Evolution_indicateur_algues_corai
              fiche = fiche_synthese("Benthos"), ordre = 3)
 ```
 
+#### Coraux BELT : diversite et etat de sante de l'annee en cours
+```{r}
+# Derniere annee de suivi BELT (peut differer de celle du LIT)
+if (!is.null(Diversite_BELT) || !is.null(Etat_sante_BELT)) {
+  annee_courante_belt <- max(c(Diversite_BELT$Annee, Etat_sante_BELT$Annee), na.rm = TRUE)
+  dossier_belt_annee <- "BELT CORAUX/Annee_en_cours"
+
+  ## (a) Diversite corallienne : % des colonies par espece (barres
+  # horizontales triees - plus lisible qu'un camembert avec 10-15 especes)
+  if (!is.null(Diversite_BELT)) {
+    Diversite_annee <- Diversite_BELT %>% filter(Annee == annee_courante_belt)
+    Palette_div <- completer_palette(Palette_taxons_coralliens, Diversite_annee$Taxon)
+
+    for (station_value in unique(Diversite_annee$Station)) {
+      df <- Diversite_annee %>% filter(Station == station_value) %>%
+        mutate(Taxon = reorder(Taxon, Pourcentage),
+               etiquette = paste0(formater_nombre(Pourcentage, 1), "% (", Nb_colonies, ")"))
+      ind <- Indices_diversite_BELT %>% filter(Station == station_value, Annee == annee_courante_belt)
+
+      p <- ggplot(df, aes(x = Pourcentage, y = Taxon, fill = as.character(Taxon))) +
+        geom_col(width = 0.7, show.legend = FALSE) +
+        geom_text(aes(label = etiquette), hjust = -0.1, size = 3, fontface = "bold") +
+        scale_fill_manual(values = Palette_div) +
+        scale_x_continuous(expand = expansion(mult = c(0, 0.25))) +
+        labs(title = str_wrap(paste("Diversite corallienne -", station_value), 50),
+             subtitle = paste0("Annee ", annee_courante_belt, " - % des colonies (nombre de colonies) ; ",
+                               "S = ", ind$Richesse, " especes, H' = ", formater_nombre(ind$Shannon, 2),
+                               ", J = ", formater_nombre(ind$Pielou, 2)),
+             x = "Colonies (%)", y = NULL) +
+        theme_fiche() +
+        theme(axis.text.y = element_text(face = "italic"), axis.title.x = element_text(face = "bold"))
+      sauver_graph(p, dossier_belt_annee, paste0("Diversite_corallienne_", annee_courante_belt, "_", station_value),
+                   "standard", hauteur = max(9, 0.65 * nrow(df) + 4),
+                   fiche = fiche_station(station_value, "Benthos"), ordre = 13)
+    }
+
+    ## Comparaison des stations (memes especes alignees)
+    df_comp <- Diversite_annee %>%
+      mutate(Taxon = reorder(Taxon, Pourcentage, FUN = sum))
+    # NB : barres verticales + coord_flip() (et non barres horizontales
+    # directes) pour que position_dodge() aligne correctement les etiquettes
+    df_comp <- df_comp %>%
+      complete(Station, Taxon, fill = list(Pourcentage = 0)) %>%
+      mutate(Station = factor(Station, levels = rev(names(Palette_stations))),
+             etiquette = ifelse(Pourcentage >= 1, formater_nombre(Pourcentage, 1), ""))
+    dodge_div <- position_dodge(width = 0.8)
+    p <- ggplot(df_comp, aes(x = Taxon, y = Pourcentage, fill = Station)) +
+      geom_col(position = dodge_div, width = 0.75) +
+      geom_text(aes(label = etiquette), position = dodge_div, hjust = -0.2, size = 2.6, fontface = "bold") +
+      coord_flip() +
+      scale_fill_manual(values = Palette_stations, breaks = names(Palette_stations)) +
+      scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+      labs(title = paste("Diversite corallienne", annee_courante_belt, "- comparaison des stations"),
+           subtitle = "% des colonies recensees par espece (protocole BELT)", y = "Colonies (%)", x = NULL) +
+      theme_fiche() +
+      theme(axis.text.y = element_text(face = "italic"), axis.title.x = element_text(face = "bold"),
+            axis.title.y = element_blank())
+    sauver_graph(p, dossier_belt_annee, paste0("Diversite_corallienne_", annee_courante_belt, "_stations"),
+                 "pleine", hauteur = max(10, 0.5 * n_distinct(df_comp$Taxon) + 5),
+                 fiche = fiche_synthese("Benthos"), ordre = 9)
+  }
+
+  ## (b) Etat de sante : camembert par station + comparaison des stations
+  if (!is.null(Etat_sante_BELT)) {
+    Sante_annee <- Etat_sante_BELT %>% filter(Annee == annee_courante_belt)
+    Palette_sante_annee <- completer_palette(Palette_etat_sante, Sante_annee$Etat_sante)
+
+    for (station_value in unique(Sante_annee$Station)) {
+      df <- Sante_annee %>% filter(Station == station_value)
+      n_col <- sum(df$Nombre_colonies)
+      p <- graph_camembert(df, "Nombre_colonies", "Etat_sante", Palette_sante_annee,
+                           labels_fill = Libelles_etat_sante,
+                           titre = str_wrap(paste("Etat de sante des colonies coralliennes -", station_value), 45),
+                           sous_titre = paste0("Annee ", annee_courante_belt, " - ", n_col, " colonies recensees (BELT)"),
+                           legende_nrow = 2)
+      sauver_graph(p, dossier_belt_annee, paste0("Etat_sante_", annee_courante_belt, "_", station_value),
+                   "carre", fiche = fiche_station(station_value, "Benthos"), ordre = 14)
+    }
+
+    p <- graph_empile(Sante_annee, "Station", "Pourcentage", "Etat_sante", Palette_sante_annee,
+                      labels_fill = Libelles_etat_sante,
+                      titre = paste("Etat de sante des colonies coralliennes", annee_courante_belt),
+                      sous_titre = "Necrose, blanchissement, maladies (SCTLD et autres), mortalite - % des colonies (BELT)",
+                      y_lab = "Colonies (%)", legende_nrow = 2, largeur_barre = 0.55)
+    sauver_graph(p, dossier_belt_annee, paste0("Etat_sante_", annee_courante_belt, "_stations"), "standard",
+                 fiche = fiche_synthese("Benthos"), ordre = 10)
+  }
+}
+```
+
 ### 2.1.2 Analyse temporelle (Evolution)
 #### 2.1.2.1 Recouvrement benthique (LIT)
 ```{r}
@@ -2237,7 +2327,7 @@ if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
     p <- graph_barres_sd(Indices_diversite_BELT, "Annee", "Richesse", fill = "Station", palette = Palette_stations,
                          titre = "Richesse specifique corallienne (protocole BELT)",
                          sous_titre = "Nombre d'especes recensees sur les 12 replicats", y_lab = "Nombre d'especes", decimales = 0)
-    sauver_graph(p, "BELT CORAUX/Composition_sante", "Richesse_coralliennne", "standard")
+    sauver_graph(p, "BELT CORAUX/Composition_sante", "Richesse_corallienne", "standard")
   }
 }
 ```
