@@ -5,7 +5,8 @@
 # changement de style (police, tailles, etiquettes...) s'applique donc
 # partout d'un coup.
 #   theme_fiche()        theme commun
-#   sauver_graph()       export PNG (+ copie dans le dossier des fiches Canva)
+#   dossier_graph()      dossier THEME / PROTOCOLE / SITE / PERIODE
+#   sauver_graph()       export PNG
 #   graph_empile()       barres empilees (compositions en %)
 #   graph_barres_sd()    barres moyenne +/- ecart-type (+ etoiles de test)
 #   graph_serie()        series temporelles (+ droite de tendance, R2, p)
@@ -64,9 +65,25 @@ enregistrer_png <- function(plot, chemin, dims) {
   }
 }
 
-# Dossiers des fiches Canva
-fiche_station  <- function(station, partie) file.path(nom_court_station(station), partie)
-fiche_synthese <- function(partie) paste0("Synthese_", partie)
+# Dossier d'un graphique dans l'arborescence THEME / PROTOCOLE / SITE / PERIODE
+#   site = nom de station, ou NULL pour la comparaison des stations, ou NA
+#          (valeur par defaut) pour un protocole sans sous-dossier de site
+#   periode = "annee" (annee en cours) ou "evolution" ; NULL = pas de sous-dossier
+dossier_graph <- function(theme, protocole, site = NA, periode = NULL) {
+  protocoles <- ARBORESCENCE[[theme]]
+  if (is.null(protocoles) || !protocole %in% protocoles) {
+    stop("Protocole '", protocole, "' absent de ARBORESCENCE$", theme, " (R/00_parametres.R)")
+  }
+  chemin <- file.path(paste0(match(theme, names(ARBORESCENCE)), "_", theme),
+                      paste0(match(protocole, protocoles), "_", protocole))
+  if (is.null(site)) {
+    chemin <- file.path(chemin, NOM_DOSSIER_COMPARAISON)
+  } else if (!is.na(site)) {
+    chemin <- file.path(chemin, toupper(nom_court_station(site)))
+  }
+  if (!is.null(periode)) chemin <- file.path(chemin, NOMS_PERIODES[[periode]])
+  chemin
+}
 
 # Au lancement du script : l'ancien R_PLOT est archive (cf. ARCHIVER_ANCIEN_R_PLOT)
 preparer_dossier_graphs <- function() {
@@ -79,38 +96,20 @@ preparer_dossier_graphs <- function() {
   dir.create(DOSSIER_GRAPHS, showWarnings = FALSE, recursive = TRUE)
 }
 
-# Enregistre un graphique UNE SEULE FOIS :
-#  - fiche + cle renseignees et cle presente dans ORDRE_FICHES :
-#      R_PLOT/<fiche>/NN_<cle>[_<station>].png (sans titre si FICHES_SANS_TITRE)
-#  - sinon : R_PLOT/Annexes/<dossier>/<nom>.png (avec titre)
-sauver_graph <- function(plot, dossier, nom, format = "standard", fiche = NULL, cle = NULL,
-                         largeur = NULL, hauteur = NULL, plot_fiche = NULL) {
+# Enregistre le graphique (une seule fois) dans R_PLOT/<dossier>/<nom>.png
+sauver_graph <- function(plot, dossier, nom, format = "standard", largeur = NULL, hauteur = NULL) {
   dims <- FORMATS_EXPORT[[format]]
   if (is.null(dims)) stop("Format d'export inconnu : ", format)
   if (!is.null(largeur)) dims[1] <- largeur
   if (!is.null(hauteur)) dims[2] <- hauteur
-
-  partie <- if (!is.null(fiche)) basename(fiche) else NULL
-  ordre  <- if (!is.null(partie) && !is.null(cle)) ORDRE_FICHES[[partie]][cle] else NA
-
-  if (!is.null(fiche) && !is.na(ordre)) {
-    p <- if (!is.null(plot_fiche)) plot_fiche else plot
-    if (inherits(p, "ggplot") && is.null(plot_fiche)) {
-      if (FICHES_SANS_TITRE)      p <- p + ggplot2::labs(title = NULL)
-      if (FICHES_SANS_SOUS_TITRE) p <- p + ggplot2::labs(subtitle = NULL)
-    }
-    # suffixe station (fiches station) : evite 2 fichiers de meme nom dans Canva
-    suffixe <- if (dirname(fiche) != ".") paste0("_", basename(dirname(fiche))) else ""
-    dossier_complet <- file.path(DOSSIER_GRAPHS, fiche)
-    fichier <- sprintf("%02d_%s%s.png", as.integer(ordre), cle, suffixe)
-  } else {
-    p <- plot
-    dossier_complet <- file.path(DOSSIER_GRAPHS, "Annexes", dossier)
-    fichier <- paste0(nettoyer_nom_fichier(nom), ".png")
+  if (inherits(plot, "ggplot")) {
+    if (GRAPHS_SANS_TITRE)      plot <- plot + ggplot2::labs(title = NULL)
+    if (GRAPHS_SANS_SOUS_TITRE) plot <- plot + ggplot2::labs(subtitle = NULL)
   }
+  dossier_complet <- file.path(DOSSIER_GRAPHS, dossier)
   dir.create(dossier_complet, showWarnings = FALSE, recursive = TRUE)
-  chemin <- file.path(dossier_complet, fichier)
-  enregistrer_png(p, chemin, dims)
+  chemin <- file.path(dossier_complet, paste0(nettoyer_nom_fichier(nom), ".png"))
+  enregistrer_png(plot, chemin, dims)
   invisible(chemin)
 }
 
