@@ -60,8 +60,7 @@ construire_inventaire <- function() {
     # Macroalgues (quadrats)
     ligne("Macroalgues (quadrats)", "Baleine", N, S[1]),
     ligne("Macroalgues (quadrats)", "Coco", N, S[1]),
-    # Coraux (colonies) : BELT Creocean ; descripteurs Bouchon non exploites
-    ligne("Coraux - colonies (BELT)", "Baleine", R, S[3], FALSE),
+    # Coraux (colonies) : protocole BELT uniquement en 2022 et 2026 (Creocean)
     ligne("Coraux - colonies (BELT)", "Baleine", N, S[2]),
     ligne("Coraux - colonies (BELT)", "Coco", N, S[2]),
     # Poissons
@@ -99,8 +98,7 @@ graph_etat_bancarisation <- function(inventaire) {
     ggplot2::labs(title = "Etat de la bancarisation des donnees du suivi GCRMN de Saint-Barthelemy",
                   subtitle = "Source de la donnee par annee ; ✓ = utilisee dans le traitement 2026 ; ✗ = non utilisee ; case vide = pas de donnee connue",
                   caption = paste0("² deux campagnes dans l'annee (moyennees dans les graphiques).  ",
-                                   "Coraux - colonies : protocole BELT 2022 (toutes colonies) et 2026 (colonies > 10 cm) non comparables ; ",
-                                   "descripteurs coralliens du rapport Bouchon non exploites.\n",
+                                   "Coraux - colonies : protocole BELT realise en 2022 (toutes colonies) et 2026 (colonies > 10 cm), non comparables.\n",
                                    "Suivi Bouchon 2002-2024 (donnees brutes Excel non transmises) ; campagnes 2022 et 2026 Creocean."),
                   x = NULL, y = NULL) +
     theme_fiche(legende = "bottom") +
