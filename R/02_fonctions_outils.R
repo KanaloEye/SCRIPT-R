@@ -200,3 +200,20 @@ dedoublonner_sources <- function(df, valeur, groupes = c("Station", "Annee"), to
   marque %>% dplyr::filter(!.doublon) %>% dplyr::arrange(.ligne) %>%
     dplyr::select(-.prio, -.ligne, -.v, -.doublon)
 }
+
+# --- BELT : protocole (taille minimale des colonies) par annee ---------------
+protocole_belt <- function(annee) {
+  annee <- as.character(annee)
+  unname(ifelse(annee %in% names(BELT_PROTOCOLE_TAILLE), BELT_PROTOCOLE_TAILLE[annee], "protocole ?"))
+}
+belt_annees_comparables <- function(annee1, annee2) protocole_belt(annee1) == protocole_belt(annee2)
+# etiquettes de l'axe des annees : "2022\n(toutes colonies)"
+etiquettes_annees_belt <- function(x) paste0(x, "\n(", protocole_belt(x), ")")
+# note a afficher sous les graphiques BELT multi-annees
+note_protocole_belt <- function(annees) {
+  annees <- sort(unique(as.character(annees)))
+  if (length(unique(protocole_belt(annees))) <= 1) return(NULL)
+  stringr::str_wrap(paste0("Attention : taille minimale des colonies differente selon les annees (",
+                           paste0(annees, " = ", protocole_belt(annees), collapse = " ; "),
+                           ") - abondance, richesse et proportions NON comparables entre ces annees."), 95)
+}

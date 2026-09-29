@@ -510,7 +510,20 @@ if (file.exists(FICHIER_BELT_CORAIL)) {
     print(Abondance_BELT, n = Inf)
 
     # Test de Wilcoxon : chaque annee vs l'annee de suivi precedente
-    Comparaison_abondance_BELT <- comparer_annees(Abondance_BELT_replicat, "Densite_10m2")
+    # Pas de test entre deux annees de protocoles differents (taille minimale
+    # des colonies, cf. BELT_PROTOCOLE_TAILLE) : la difference refleterait le
+    # protocole et non l'evolution du recif.
+    Comparaison_abondance_BELT <- comparer_annees(Abondance_BELT_replicat, "Densite_10m2") %>%
+      mutate(Protocole_ref = protocole_belt(Annee_ref), Protocole = protocole_belt(Annee),
+             Comparable = belt_annees_comparables(Annee_ref, Annee),
+             p_wilcoxon = ifelse(Comparable, p_wilcoxon, NA_real_),
+             Signif = ifelse(Comparable, Signif, ""))
+    if (any(!Comparaison_abondance_BELT$Comparable)) {
+      cat("\nATTENTION BELT : protocoles differents entre annees (",
+          paste(unique(paste(Comparaison_abondance_BELT$Annee_ref, "vs", Comparaison_abondance_BELT$Annee)[
+            !Comparaison_abondance_BELT$Comparable]), collapse = ", "),
+          ") - pas de comparaison statistique.\n")
+    }
     cat("\nComparaison entre annees (Wilcoxon, replicats BELT) :\n")
     print(Comparaison_abondance_BELT)
 
@@ -2061,7 +2074,7 @@ if (!is.null(Diversite_BELT) || !is.null(Etat_sante_BELT)) {
         scale_fill_manual(values = Palette_div) +
         scale_x_continuous(expand = expansion(mult = c(0, 0.25))) +
         labs(title = str_wrap(paste("Diversite corallienne -", station_value), 50),
-             subtitle = paste0("Annee ", annee_courante_belt, " - % des colonies (nombre de colonies) ; ",
+             subtitle = paste0("Annee ", annee_courante_belt, " (", protocole_belt(annee_courante_belt), ") - % des colonies (nombre) ; ",
                                "S = ", ind$Richesse, " especes, H' = ", formater_nombre(ind$Shannon, 2),
                                ", J = ", formater_nombre(ind$Pielou, 2)),
              x = "Colonies (%)", y = NULL) +
@@ -2088,7 +2101,8 @@ if (!is.null(Diversite_BELT) || !is.null(Etat_sante_BELT)) {
       scale_fill_manual(values = Palette_stations, breaks = names(Palette_stations)) +
       scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
       labs(title = paste("Diversite corallienne", annee_courante_belt, "- comparaison des stations"),
-           subtitle = "% des colonies recensees par espece (protocole BELT)", y = "Colonies (%)", x = NULL) +
+           subtitle = paste0("% des colonies recensees par espece (BELT, ", protocole_belt(annee_courante_belt), ")"),
+           y = "Colonies (%)", x = NULL) +
       theme_fiche() +
       theme(axis.text.y = element_text(face = "italic"), axis.title.x = element_text(face = "bold"),
             axis.title.y = element_blank())
@@ -2107,7 +2121,8 @@ if (!is.null(Diversite_BELT) || !is.null(Etat_sante_BELT)) {
       p <- graph_camembert(df, "Nombre_colonies", "Etat_sante", Palette_sante_annee,
                            labels_fill = Libelles_etat_sante,
                            titre = str_wrap(paste("Etat de sante des colonies coralliennes -", station_value), 45),
-                           sous_titre = paste0("Annee ", annee_courante_belt, " - ", n_col, " colonies recensees (BELT)"),
+                           sous_titre = paste0("Annee ", annee_courante_belt, " - ", n_col, " colonies recensees (BELT, ",
+                                               protocole_belt(annee_courante_belt), ")"),
                            legende_nrow = 2)
       sauver_graph(p, dossier_graph("BENTHOS", "BELT_CORAUX", station_value, "annee"), paste0("Etat_sante_", annee_courante_belt, "_", station_value),
                    "carre")
@@ -2116,7 +2131,8 @@ if (!is.null(Diversite_BELT) || !is.null(Etat_sante_BELT)) {
     p <- graph_empile(Sante_annee, "Station", "Pourcentage", "Etat_sante", Palette_sante_annee,
                       labels_fill = Libelles_etat_sante,
                       titre = paste("Etat de sante des colonies coralliennes", annee_courante_belt),
-                      sous_titre = "Necrose, blanchissement, maladies (SCTLD et autres), mortalite - % des colonies (BELT)",
+                      sous_titre = paste0("Necrose, blanchissement, maladies, mortalite - % des colonies (BELT, ",
+                                          protocole_belt(annee_courante_belt), ")"),
                       y_lab = "Colonies (%)", legende_nrow = 2, largeur_barre = 0.55)
     sauver_graph(p, dossier_graph("BENTHOS", "BELT_CORAUX", NULL, "annee"), paste0("Etat_sante_", annee_courante_belt, "_stations"), "standard")
   }
@@ -2306,6 +2322,12 @@ if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
 } else {
   Palette_etat_sante_ok <- completer_palette(Palette_etat_sante, Etat_sante_BELT$Etat_sante)
 
+  # axe des annees avec le protocole + avertissement si protocoles differents
+  habillage_belt <- list(
+    scale_x_discrete(labels = etiquettes_annees_belt),
+    labs(caption = note_protocole_belt(c(Abondance_BELT$Annee, Etat_sante_BELT$Annee)))
+  )
+
   for (station_value in unique(c(Abondance_BELT$Station, Etat_sante_BELT$Station))) {
     graphs_station <- list()
 
@@ -2318,8 +2340,9 @@ if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
         titre = str_wrap(paste("Abondance des coraux -", station_value), 50),
         sous_titre = paste0("Colonies vivantes / 10 m² (moyenne +/- ET des replicats 10 x 1 m)",
                             " - hors colonies mortes",
-                            "\n* test de Wilcoxon vs annee de suivi precedente"),
-        y_lab = "Colonies / 10 m²", couleur = "lightsalmon3")
+                            if (!is.null(Comparaison_abondance_BELT) && any(Comparaison_abondance_BELT$Comparable))
+                              "\n* test de Wilcoxon vs annee de suivi precedente" else ""),
+        y_lab = "Colonies / 10 m²", couleur = "lightsalmon3") + habillage_belt
       sauver_graph(graphs_station$abondance, dossier_graph("BENTHOS", "BELT_CORAUX", station_value, "evolution"), paste0("Abondance_coraux_", station_value), "large")
     }
 
@@ -2335,7 +2358,7 @@ if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
           titre = str_wrap(paste("Diversite relative des especes coralliennes -", station_value), 50),
           sous_titre = paste0("% des colonies recensees ; S = richesse, H' = Shannon, J = Pielou\n",
                               paste(indices_station$txt, collapse = "  |  ")),
-          y_lab = "Colonies (%)", legende_ncol = 3, legende_italique = TRUE, largeur_barre = 0.6)
+          y_lab = "Colonies (%)", legende_ncol = 3, legende_italique = TRUE, largeur_barre = 0.6) + habillage_belt
         sauver_graph(graphs_station$diversite, dossier_graph("BENTHOS", "BELT_CORAUX", station_value, "evolution"), paste0("Diversite_relative_", station_value), "pleine",
                      hauteur = 15)
       }
@@ -2348,7 +2371,7 @@ if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
         df_sante, "Annee", "Pourcentage", "Etat_sante", Palette_etat_sante_ok, labels_fill = Libelles_etat_sante,
         titre = str_wrap(paste("Etat de sante des colonies coralliennes -", station_value), 50),
         sous_titre = "Necrose, blanchissement, maladies (SCTLD et autres), mortalite - % des colonies recensees",
-        y_lab = "Colonies (%)", legende_nrow = 2, largeur_barre = 0.6)
+        y_lab = "Colonies (%)", legende_nrow = 2, largeur_barre = 0.6) + habillage_belt
       sauver_graph(graphs_station$sante, dossier_graph("BENTHOS", "BELT_CORAUX", station_value, "evolution"), paste0("Etat_sante_", station_value), "large",
                    hauteur = 12)
     }
@@ -2370,20 +2393,22 @@ if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
     p <- graph_barres_sd(Abondance_BELT, "Annee", "Densite_moy_10m2", sd = "Densite_ET_10m2",
                          fill = "Station", palette = Palette_stations,
                          titre = "Abondance de colonies coralliennes (protocole BELT)",
-                         sous_titre = "Colonies / 10 m² : moyenne +/- ecart-type des replicats", y_lab = "Colonies / 10 m²")
+                         sous_titre = "Colonies vivantes / 10 m² : moyenne +/- ecart-type des replicats", y_lab = "Colonies / 10 m²") +
+      habillage_belt
     sauver_graph(p, dossier_graph("BENTHOS", "BELT_CORAUX", NULL, "evolution"), "Densite_colonies", "standard")
   }
   if (!is.null(Taux_atteinte_BELT) && nrow(Taux_atteinte_BELT) > 0) {
     p <- graph_barres_sd(Taux_atteinte_BELT, "Annee", "Pct_atteinte", fill = "Station", palette = Palette_stations,
                          titre = str_wrap("Taux de colonies coralliennes atteintes (necrose, maladie, blanchissement, mortalite)", 55),
-                         sous_titre = "% de colonies non 'saines' parmi les colonies recensees (BELT)",
-                         y_lab = "Colonies atteintes (%)", suffixe = "%")
+                         sous_titre = "% de colonies atteintes parmi les colonies vivantes (BELT)",
+                         y_lab = "Colonies atteintes (%)", suffixe = "%") + habillage_belt
     sauver_graph(p, dossier_graph("BENTHOS", "BELT_CORAUX", NULL, "evolution"), "Taux_colonies_atteintes", "standard")
   }
   if (!is.null(Indices_diversite_BELT) && nrow(Indices_diversite_BELT) > 0) {
     p <- graph_barres_sd(Indices_diversite_BELT, "Annee", "Richesse", fill = "Station", palette = Palette_stations,
                          titre = "Richesse specifique corallienne (protocole BELT)",
-                         sous_titre = "Nombre d'especes recensees sur les 12 replicats", y_lab = "Nombre d'especes", decimales = 0)
+                         sous_titre = "Nombre d'especes recensees sur les 12 replicats", y_lab = "Nombre d'especes", decimales = 0) +
+      habillage_belt
     sauver_graph(p, dossier_graph("BENTHOS", "BELT_CORAUX", NULL, "evolution"), "Richesse_corallienne", "standard")
   }
 }
@@ -2919,7 +2944,7 @@ Comparaisons_annees <- bind_rows(
 #     significativite et tendance long terme, avec un texte pret a coller
 #     dans Canva (ex. "12,4 % (▼ 3,1 depuis 2022 *)") ------------------------
 resumer_indicateur <- function(df, valeur, compartiment, indicateur, unite, decimales = 1,
-                               comparaisons = NULL, cle_tendance = NULL) {
+                               comparaisons = NULL, cle_tendance = NULL, protocole = NULL) {
   if (is.null(df) || nrow(df) == 0 || !valeur %in% names(df)) return(NULL)
   res <- df %>%
     filter(!is.na(.data[[valeur]])) %>%
@@ -2934,6 +2959,13 @@ resumer_indicateur <- function(df, valeur, compartiment, indicateur, unite, deci
               .groups = "drop") %>%
     mutate(Compartiment = compartiment, Indicateur = indicateur, Unite = unite,
            Evolution = Valeur - Valeur_precedente)
+  # annees de protocoles differents (ex. BELT) : pas d'evolution calculee
+  res$Note <- ""
+  if (!is.null(protocole)) {
+    non_comp <- !is.na(res$Annee_precedente) & protocole(res$Annee) != protocole(res$Annee_precedente)
+    res$Evolution[non_comp] <- NA
+    res$Note[non_comp] <- paste0(" (non comparable a ", res$Annee_precedente[non_comp], " : protocole different)")
+  }
   res$Signif <- ""
   if (!is.null(comparaisons) && nrow(comparaisons) > 0) {
     res <- res %>% select(-Signif) %>%
@@ -2955,7 +2987,8 @@ resumer_indicateur <- function(df, valeur, compartiment, indicateur, unite, deci
              # ▲ / ▼ = fleches haut / bas (codes unicode : pas de souci d'encodage sous Windows)
              paste0(" (", ifelse(Evolution > 0, "▲ +", ifelse(Evolution < 0, "▼ -", "= ")),
                     formater_nombre(abs(Evolution), decimales), " depuis ", Annee_precedente,
-                    ifelse(Signif %in% c("*", "**", "***"), paste0(" ", Signif), ""), ")")))
+                    ifelse(Signif %in% c("*", "**", "***"), paste0(" ", Signif), ""), ")")),
+      Note)
   ) %>%
     select(Compartiment, Station, Indicateur, Unite, Annee, Valeur, Annee_precedente, Valeur_precedente,
            Evolution, Signif, Tendance_long_terme, Texte_fiche)
@@ -2968,9 +3001,11 @@ Chiffres_cles <- bind_rows(
                      "Benthos", "Recouvrement macroalgues molles (LIT)", "%", cle_tendance = "Macroalgues"),
   resumer_indicateur(Indicateur_benthos, "Ratio_algues_corail", "Benthos", "Ratio algues / corail", "", 2),
   resumer_indicateur(Abondance_BELT, "Densite_moy_10m2", "Benthos", "Colonies coralliennes (BELT)", "col./10 m²", 1,
-                     comparaisons = Comparaison_abondance_BELT),
-  resumer_indicateur(Indices_diversite_BELT, "Richesse", "Benthos", "Richesse corallienne (BELT)", "especes", 0),
-  resumer_indicateur(Taux_atteinte_BELT, "Pct_atteinte", "Benthos", "Colonies atteintes (BELT)", "%", 1),
+                     comparaisons = Comparaison_abondance_BELT, protocole = protocole_belt),
+  resumer_indicateur(Indices_diversite_BELT, "Richesse", "Benthos", "Richesse corallienne (BELT)", "especes", 0,
+                     protocole = protocole_belt),
+  resumer_indicateur(Taux_atteinte_BELT, "Pct_atteinte", "Benthos", "Colonies atteintes (BELT)", "%", 1,
+                     protocole = protocole_belt),
   resumer_indicateur(Recrues_modernes, "Recrues_m2", "Benthos", "Recrues coralliennes", "/m²", 2,
                      comparaisons = Comparaison_recrues, cle_tendance = "Recrues"),
   resumer_indicateur(Oursins_modernes, "Densite_m2", "Benthos", "Oursins", "/m²", 2,
@@ -3222,6 +3257,7 @@ if (dir.exists(DOSSIER_GRAPHS)) {
 ```
 
 ## Points d'attention
+- **BELT CORAIL - protocole** : en 2022 toutes les colonies etaient comptees, en 2026 seulement les colonies > 10 cm (`BELT_PROTOCOLE_TAILLE`). Les deux annees ne sont pas comparables : aucun test ni evolution n'est calcule entre elles.
 - **BELT CORAIL - comptage** : les atteintes d'une meme ligne (necrose, SCTLD, autres maladies, blanchissement) sont considerees cumulables sur une meme colonie (`BELT_MODE_COMPTAGE = "cumul"`) ; les colonies mortes sont exclues des colonies vivantes.
 - **Seuils de reference** : `SEUILS_REFERENCE` est vide par defaut ; y renseigner les seuils GCRMN/IFRECOR retenus pour les voir apparaitre en pointille sur les graphiques.
 - **Analyses multivariees** : 2 stations x 2 annees d'extraction seulement - resultats exploratoires.

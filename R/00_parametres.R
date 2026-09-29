@@ -96,6 +96,16 @@ ETATS_MORTS_BELT    <- c("Mort_Recent", "Mort_Ancien")
 #   "somme" : chaque atteinte concerne des colonies differentes (8 ici)
 BELT_MODE_COMPTAGE <- "cumul"
 
+# BELT CORAIL - taille minimale des colonies comptees, par annee de suivi.
+# Deux annees de protocoles differents ne sont PAS comparables (abondance,
+# richesse, % de colonies atteintes) : pas de test ni d'evolution affichee
+# entre elles, et le protocole est indique sous chaque annee des graphiques.
+# Ajouter chaque nouvelle annee de suivi ici.
+BELT_PROTOCOLE_TAILLE <- c(
+  "2022" = "toutes colonies",
+  "2026" = "colonies > 10 cm"
+)
+
 # Categories LIT comptees comme "algues" dans l'indicateur Algues/Corail.
 # Les algues calcaires encroutantes (corallinacees) en sont exclues : ce
 # sont des algues "favorables" (substrat de fixation des larves de corail)
