@@ -19,7 +19,7 @@ FICHIERS <- list(
   # graphiques retombent sur les seules donnees d'extraction ReefDB.
   BELT_CORAIL   = "BD Excel/SUIVI_GCRMN_BELT_CORAIL_2026.xlsx",
   HISTORIQUE_ATE = "BD Excel/Data_Bouchon/250975_ATE_GCRMN_EVOL_BENTHOS_C_BOUCHON.xlsx",
-  BOUCHON_2024  = "BD Excel/Data_Bouchon/Rapport_Bouchon_2024_donnees.xlsx"
+  ECORECIF_2024  = "BD Excel/Data_Bouchon/Rapport_Bouchon_2024_donnees.xlsx"
 )
 FICHIERS_OBLIGATOIRES <- c("LIT_BENTHOS", "RECRUES", "OURSINS", "MACROALGUES", "POISSONS", "LISTE_POISSONS")
 
@@ -65,11 +65,11 @@ STATIONS <- tibble::tribble(
   "Ilet Coco",                 "coco",     "Coco",     "#E07A5F"
 )
 
-# Station couverte par le rapport Bouchon & Bouchon-Navaro 2024
-STATION_RAPPORT_BOUCHON <- "Baleine de Pain de Sucre"
-# Dates approximatives des campagnes du rapport Bouchon (aucune date
+# Station couverte par le rapport Eco Récif Environnement 2024
+STATION_RAPPORT_ECORECIF <- "Baleine de Pain de Sucre"
+# Dates approximatives des campagnes du rapport Eco Récif Environnement (aucune date
 # exacte n'est donnee pour le benthos dans le rapport)
-DATES_CAMPAGNES_BOUCHON <- tibble::tibble(
+DATES_CAMPAGNES_ECORECIF <- tibble::tibble(
   Annee = c(2018, 2020, 2023, 2024),
   Date  = as.Date(c("2018-12-01", "2020-01-01", "2023-03-01", "2024-11-01"))
 )
@@ -79,8 +79,8 @@ LONGUEUR_TRANSECT_LIT_M       <- 30    # longueur nominale des transects LIT
 SURFACE_QUADRAT_RECRUES_M2    <- 0.5   # nb recrues / surface = recrues/m2
 SURFACE_QUADRAT_OURSINS_M2    <- 1
 SURFACE_BELT_PAR_DEFAUT_M2    <- 10    # 10 m x 1 m si non renseigne
-SURFACE_HISTO_OURSINS_M2      <- 60    # rapport Bouchon : effectifs / 60 m2
-SURFACE_HISTO_RECRUES_M2      <- 30    # rapport Bouchon : juveniles / 30 m2
+SURFACE_HISTO_OURSINS_M2      <- 60    # rapport Eco Récif Environnement : effectifs / 60 m2
+SURFACE_HISTO_RECRUES_M2      <- 30    # rapport Eco Récif Environnement : juveniles / 30 m2
 
 # BELT CORAIL - etats de sante
 #  - atteintes (colonies VIVANTES atteintes) : peuvent se cumuler sur une
@@ -116,7 +116,7 @@ CATEGORIES_ALGUES_RATIO <- c("Macroalgues molles", "Turf algal", "Macroalgues ca
 # Poissons : taille (cm) attribuee a la classe "> 40 cm" pour le calcul de
 # biomasse (a x L^b). 40 = borne basse (hypothese prudente, biomasse des
 # gros individus sous-estimee) ; 45 ou 50 sont aussi utilises selon les
-# protocoles - a harmoniser avec le rapport Bouchon pour comparer.
+# protocoles - a harmoniser avec le rapport Eco Récif Environnement pour comparer.
 TAILLE_CLASSE_PLUS_40_CM <- 40
 
 # Poissons : correspondance nom ReefDB -> nom du referentiel

@@ -1357,17 +1357,17 @@ print(Taille_POISSONS_moderne, n = Inf)
 
 ### 1.6bis Integration donnees historiques (POISSONS)
 ```{r}
-# Rapport Bouchon & Bouchon-Navaro 2024 (meme classeur que pour le
+# Rapport Eco Récif Environnement 2024 (meme classeur que pour le
 # benthos, feuilles "Poissons_indicateurs" et "Poissons_trophique") -
 # Baleine de Pain de Sucre uniquement, 2018/2020/2023/2024.
 # Construit BDD_evolution_poissons (indicateurs globaux, extraction +
 # historique) et Trophique_historique (structure trophique, historique
 # seul - cf. note sur la non-fusion avec Regime_trophique ci-dessous).
 
-FICHIER_BOUCHON_POISSONS <- FICHIERS$BOUCHON_2024
+FICHIER_ECORECIF_POISSONS <- FICHIERS$ECORECIF_2024
 
 # --- Indicateurs MODERNES (extraction ReefDB) : toujours calcules ---------
-# (auparavant calcules seulement si le fichier Bouchon etait present : sans
+# (auparavant calcules seulement si le fichier Eco Récif Environnement etait present : sans
 # lui, aucun indicateur poisson n'etait produit, meme pour 2022/2026)
 # Equivalent moderne : on regroupe (pool) tous les replicats par
 # Station x Annee - la richesse specifique notamment n'a de sens que
@@ -1460,14 +1460,14 @@ if (nrow(Especes_sans_regime) > 0) {
 BDD_evolution_poissons <- Poissons_indicateurs_modernes %>% arrange(Station, Annee)
 Trophique_historique   <- Trophique_moderne %>% arrange(Station, Annee)
 
-# --- Historique Bouchon 2024 (optionnel) -----------------------------------
-if (file.exists(FICHIER_BOUCHON_POISSONS)) {
+# --- Historique Eco Récif Environnement 2024 (optionnel) -----------------------------------
+if (file.exists(FICHIER_ECORECIF_POISSONS)) {
 
   # dates approximatives (memes campagnes que pour le benthos, cf. 1.7)
-  dates_bouchon_poissons <- DATES_CAMPAGNES_BOUCHON  # cf. R/00_parametres.R
+  dates_ecorecif_poissons <- DATES_CAMPAGNES_ECORECIF  # cf. R/00_parametres.R
 
   ## -- Indicateurs globaux (Tableau 5 du rapport) -----------------------
-  Poissons_indicateurs_brut <- read_excel(FICHIER_BOUCHON_POISSONS, sheet = "Poissons_indicateurs", skip = 3)
+  Poissons_indicateurs_brut <- read_excel(FICHIER_ECORECIF_POISSONS, sheet = "Poissons_indicateurs", skip = 3)
 
   Poissons_indicateurs_historique <- Poissons_indicateurs_brut %>%
     slice(1:5) %>%  # les 5 indicateurs ; le reste de la feuille est une
@@ -1491,15 +1491,15 @@ if (file.exists(FICHIER_BOUCHON_POISSONS)) {
     ) %>%
     select(Indicateur, Annee, Valeur) %>%
     pivot_wider(names_from = Indicateur, values_from = Valeur) %>%
-    left_join(dates_bouchon_poissons, by = "Annee") %>%
+    left_join(dates_ecorecif_poissons, by = "Annee") %>%
     mutate(
-      Station = STATION_RAPPORT_BOUCHON,
+      Station = STATION_RAPPORT_ECORECIF,
       # conversion sur une base comparable (100 m²) a la densite moderne,
       # calculee plus bas a partir de l'extraction (le rapport donne un
       # total sur 600 m², cf. Lisez-moi du classeur)
       Densite_100m2 = round(Effectifs_600m2 / 6, 1),
       Pct_juveniles = round(100 * Effectifs_juveniles / Effectifs_600m2, 1),
-      Source = "Rapport_Bouchon_2024"
+      Source = "Rapport_EcoRecif_2024"
     ) %>%
     select(Station, Date, Annee, Richesse_specifique, Densite_100m2,
            Biomasse_kg_ha, Nb_especes_juveniles, Pct_juveniles, Source)
@@ -1512,7 +1512,7 @@ if (file.exists(FICHIER_BOUCHON_POISSONS)) {
   # Omnivore, Planctonophage, Carnivore1, Carnivore2, Piscivore) ont ete
   # verifiees identiques a celles du rapport (He/Om/Pl/C1/C2/Pi) - fusion
   # avec les donnees d'extraction (2022/2026, les 2 stations) possible.
-  Poissons_trophique_brut <- read_excel(FICHIER_BOUCHON_POISSONS, sheet = "Poissons_trophique", skip = 3)
+  Poissons_trophique_brut <- read_excel(FICHIER_ECORECIF_POISSONS, sheet = "Poissons_trophique", skip = 3)
 
   Trophique_historique <- Poissons_trophique_brut %>%
     fill(Paramètre, .direction = "down") %>%
@@ -1523,8 +1523,8 @@ if (file.exists(FICHIER_BOUCHON_POISSONS)) {
     mutate(
       Groupe_trophique = str_remove(Groupe_trophique, " \\(%\\)"),
       Groupe_trophique = factor(Groupe_trophique, levels = c("He", "Om", "Pl", "C1", "C2", "Pi")),
-      Station = STATION_RAPPORT_BOUCHON,
-      Source = "Rapport_Bouchon_2024"
+      Station = STATION_RAPPORT_ECORECIF,
+      Source = "Rapport_EcoRecif_2024"
     )
 
   Trophique_historique <- bind_rows(
@@ -1534,7 +1534,7 @@ if (file.exists(FICHIER_BOUCHON_POISSONS)) {
     arrange(Station, Annee)
 
 } else {
-  warning("Fichier '", FICHIER_BOUCHON_POISSONS, "' introuvable - historique poissons non integre ",
+  warning("Fichier '", FICHIER_ECORECIF_POISSONS, "' introuvable - historique poissons non integre ",
           "(indicateurs calcules sur les seules annees d'extraction).", call. = FALSE)
 }
 
@@ -1573,7 +1573,7 @@ print(Trophique_historique, n = Inf)
 # l'extraction ReefDB (qui ne couvre que 2022 et 2026) :
 #   - le fichier ATE : serie 2002-2022, indicateurs globaux (% corail,
 #     % macroalgues, recrues/m2) pour les 2 stations ;
-#   - le rapport Bouchon & Bouchon-Navaro 2024 : Baleine de Pain de Sucre
+#   - le rapport Eco Récif Environnement 2024 : Baleine de Pain de Sucre
 #     uniquement, 2018/2020/2023/2024, avec en plus le detail complet de
 #     la composition benthique et le recrutement corallien par espece.
 # Cette section produit aussi les tables au format attendu par l'export
@@ -1584,7 +1584,7 @@ print(Trophique_historique, n = Inf)
 # Indicateur_benthos, Indicateur_macroalgue, Taxons_algaux.
 
 FICHIER_HISTORIQUE   <- FICHIERS$HISTORIQUE_ATE
-FICHIER_BOUCHON_2024 <- FICHIERS$BOUCHON_2024
+FICHIER_ECORECIF_2024 <- FICHIERS$ECORECIF_2024
 
 # Valeurs par defaut : donnees d'extraction seules
 Recouvrement_detail_historique <- Recouvrement_detail_annee %>%
@@ -1680,17 +1680,17 @@ if (file.exists(FICHIER_HISTORIQUE)) {
           "aux autres sources.", call. = FALSE)
 }
 
-# --- Rapport Bouchon & Bouchon-Navaro 2024 (optionnel) --------------------
+# --- Rapport Eco Récif Environnement 2024 (optionnel) --------------------
 # (independant du fichier ATE : chacun est integre s'il est present)
-if (file.exists(FICHIER_BOUCHON_2024)) {
+if (file.exists(FICHIER_ECORECIF_2024)) {
 
-  Benthos_bouchon_brut <- read_excel(FICHIER_BOUCHON_2024, sheet = "Benthos_couverture_%", skip = 3)
-  Recrutement_bouchon_brut <- read_excel(FICHIER_BOUCHON_2024, sheet = "Coraux_recrutement", skip = 3)
+  Benthos_ecorecif_brut <- read_excel(FICHIER_ECORECIF_2024, sheet = "Benthos_couverture_%", skip = 3)
+  Recrutement_ecorecif_brut <- read_excel(FICHIER_ECORECIF_2024, sheet = "Coraux_recrutement", skip = 3)
 
   # dates approximatives communes a toute la section (mois de la
   # campagne poissons du meme rapport ; aucune date exacte n'est donnee
   # pour le benthos/recrutement dans le rapport)
-  dates_bouchon <- DATES_CAMPAGNES_BOUCHON  # cf. R/00_parametres.R
+  dates_ecorecif <- DATES_CAMPAGNES_ECORECIF  # cf. R/00_parametres.R
 
   ## Indicateurs globaux (corail / macroalgues / recrues) ----------------
   # % corail = colonne "Coraux" ; % macroalgues = "Pheophycees (macroalgues
@@ -1699,7 +1699,7 @@ if (file.exists(FICHIER_BOUCHON_2024)) {
   # sens de l'indicateur historique) - verifie coherent avec le fichier
   # ATE sur l'annee commune 2018 (16,5% corail / 8,8% macroalgues dans
   # les deux sources, valeurs identiques).
-  Benthos_bouchon <- Benthos_bouchon_brut %>%
+  Benthos_ecorecif <- Benthos_ecorecif_brut %>%
     select(Annee = Année, Recouvrement_corallien_pct = Coraux,
            Recouvrement_macroalgues_pct = `Phéophycées (macroalgues brunes)`) %>%
     mutate(
@@ -1715,7 +1715,7 @@ if (file.exists(FICHIER_BOUCHON_2024)) {
   # Recrues/m2 = nombre total de juveniles coralliens / 30 m² (meme
   # definition que la colonne Recrues_m2 du fichier ATE, confirme par
   # la valeur identique 2,9 recrues/m2 en 2018 dans les deux sources)
-  Recrues_bouchon <- Recrutement_bouchon_brut %>%
+  Recrues_ecorecif <- Recrutement_ecorecif_brut %>%
     filter(Espèce == "Nb. total de juvéniles") %>%
     select(-Espèce) %>%
     pivot_longer(everything(), names_to = "Annee", values_to = "Nb_juveniles") %>%
@@ -1723,21 +1723,21 @@ if (file.exists(FICHIER_BOUCHON_2024)) {
     filter(!is.na(Annee)) %>%
     select(Annee, Recrues_m2)
 
-  Bouchon_2024 <- Benthos_bouchon %>%
-    left_join(Recrues_bouchon, by = "Annee") %>%
-    left_join(dates_bouchon, by = "Annee") %>%
-    mutate(Station = STATION_RAPPORT_BOUCHON, Source = "Rapport_Bouchon_2024") %>%
+  EcoRecif_2024 <- Benthos_ecorecif %>%
+    left_join(Recrues_ecorecif, by = "Annee") %>%
+    left_join(dates_ecorecif, by = "Annee") %>%
+    mutate(Station = STATION_RAPPORT_ECORECIF, Source = "Rapport_EcoRecif_2024") %>%
     # 2018 est un doublon EXACT du fichier ATE (memes valeurs, tres
     # probablement la meme source d'origine) - on ne le reintroduit pas
     filter(Annee != 2018) %>%
     select(Station, Date, Annee, Recouvrement_corallien_pct,
            Recouvrement_macroalgues_pct, Recrues_m2, Source)
 
-  BDD_evolution_benthos <- bind_rows(BDD_evolution_benthos, Bouchon_2024) %>%
+  BDD_evolution_benthos <- bind_rows(BDD_evolution_benthos, EcoRecif_2024) %>%
     arrange(Station, Date)
 
   ## Composition detaillee historique (alimente 1.2 / Recouvrement_benthos_complet)
-  # Correspondance entre les intitules du rapport Bouchon et les
+  # Correspondance entre les intitules du rapport Eco Récif Environnement et les
   # categories deja utilisees dans Categorie_detail (cf. 1.1) :
   #   Gazon algal                              -> Turf algal
   #   Coraux                                   -> Coraux durs
@@ -1749,29 +1749,29 @@ if (file.exists(FICHIER_BOUCHON_2024)) {
   #   Tuniciers                                -> pas d'equivalent, exclu
   #   Sable                                    -> Sable
   #   Debris coralliens                        -> Debris
-  Composition_bouchon <- Benthos_bouchon_brut %>%
+  Composition_ecorecif <- Benthos_ecorecif_brut %>%
     rename(Annee = Année) %>%
     mutate(Annee = suppressWarnings(as.numeric(Annee))) %>%
     filter(!is.na(Annee)) %>%
     select(-any_of(c("Total (contrôle)", "Tuniciers"))) %>%
-    pivot_longer(-Annee, names_to = "Categorie_brute_bouchon", values_to = "Pourcentage_moyen") %>%
+    pivot_longer(-Annee, names_to = "Categorie_brute_ecorecif", values_to = "Pourcentage_moyen") %>%
     filter(!is.na(Pourcentage_moyen)) %>%
     mutate(Categorie_detail = case_when(
-      Categorie_brute_bouchon == "Gazon algal" ~ "Turf algal",
-      Categorie_brute_bouchon == "Coraux" ~ "Coraux durs",
-      Categorie_brute_bouchon == "Mélobésiées (Corallinacées encroûtantes)" ~ "Algues calcaires encroutantes",
-      Categorie_brute_bouchon == "Phéophycées (macroalgues brunes)" ~ "Macroalgues molles",
-      Categorie_brute_bouchon == "Gorgones" ~ "Gorgones",
-      Categorie_brute_bouchon == "Spongiaires" ~ "Eponges",
-      Categorie_brute_bouchon == "Cyanobactéries" ~ "Cyanophycées",
-      Categorie_brute_bouchon == "Sable" ~ "Sable",
-      Categorie_brute_bouchon == "Débris coralliens" ~ "Débris",
+      Categorie_brute_ecorecif == "Gazon algal" ~ "Turf algal",
+      Categorie_brute_ecorecif == "Coraux" ~ "Coraux durs",
+      Categorie_brute_ecorecif == "Mélobésiées (Corallinacées encroûtantes)" ~ "Algues calcaires encroutantes",
+      Categorie_brute_ecorecif == "Phéophycées (macroalgues brunes)" ~ "Macroalgues molles",
+      Categorie_brute_ecorecif == "Gorgones" ~ "Gorgones",
+      Categorie_brute_ecorecif == "Spongiaires" ~ "Eponges",
+      Categorie_brute_ecorecif == "Cyanobactéries" ~ "Cyanophycées",
+      Categorie_brute_ecorecif == "Sable" ~ "Sable",
+      Categorie_brute_ecorecif == "Débris coralliens" ~ "Débris",
       TRUE ~ NA_character_
     )) %>%
     filter(!is.na(Categorie_detail)) %>%
     # meme regroupement de haut niveau que dans la section 1.1, pour
     # pouvoir alimenter Recouvrement_benthos_complet (niveau LIT) aussi
-    # bien avec les donnees d'extraction qu'avec celles de Bouchon
+    # bien avec les donnees d'extraction qu'avec celles de Eco Récif Environnement
     mutate(LIT = case_when(
       Categorie_detail %in% c("Turf algal",
                                "Macroalgues calcaires", "Algues calcaires encroutantes") ~ "Autres algues",
@@ -1781,20 +1781,20 @@ if (file.exists(FICHIER_BOUCHON_2024)) {
       Categorie_detail %in% c("Roche", "Sable", "Débris", "Corail mort récent") ~ "Non vivant",
       TRUE ~ "Non vivant"
     )) %>%
-    left_join(dates_bouchon, by = "Annee") %>%
-    mutate(Station = STATION_RAPPORT_BOUCHON, Source = "Rapport_Bouchon_2024",
+    left_join(dates_ecorecif, by = "Annee") %>%
+    mutate(Station = STATION_RAPPORT_ECORECIF, Source = "Rapport_EcoRecif_2024",
            Pourcentage_ET = NA_real_, n_replicats = NA_integer_) %>%
     select(Station, Date, Annee, LIT, Categorie_detail,
            Pourcentage_moyen, Pourcentage_ET, n_replicats, Source)
 
   Recouvrement_detail_historique <- bind_rows(
     Recouvrement_detail_annee %>% mutate(Source = "Extraction_ReefDB_LIT"),
-    Composition_bouchon
+    Composition_ecorecif
   ) %>%
     arrange(Station, Date)
 
   ## Composition du recrutement corallien (alimente 1.4) -----------------
-  # La composition du recrutement (Bouchon, juveniles) est deja une
+  # La composition du recrutement (Eco Récif Environnement, juveniles) est deja une
   # grandeur RELATIVE (% du nombre total de juveniles cette annee-la,
   # somme = 100%). Pour rester comparable sur le meme graphique, le
   # recouvrement issu de l'extraction ReefDB (2022/2026), qui est un %
@@ -1803,7 +1803,7 @@ if (file.exists(FICHIER_BOUCHON_2024)) {
   # Les deux series restent neanmoins deux compartiments biologiques
   # differents (corail adulte vs recrues juveniles) - cf. sous-titre du
   # graphique 1.4.
-  Recrutement_composition_bouchon <- Recrutement_bouchon_brut %>%
+  Recrutement_composition_ecorecif <- Recrutement_ecorecif_brut %>%
     filter(!Espèce %in% c("Nb. total de juvéniles", "Nb. d'espèces ayant recruté")) %>%
     pivot_longer(-Espèce, names_to = "Annee", values_to = "Nb_juveniles") %>%
     mutate(Annee = suppressWarnings(as.numeric(Annee))) %>%
@@ -1812,8 +1812,8 @@ if (file.exists(FICHIER_BOUCHON_2024)) {
     mutate(Pourcentage_moyen = round(100 * Nb_juveniles / sum(Nb_juveniles), 2)) %>%
     ungroup() %>%
     rename(Taxon = Espèce) %>%
-    left_join(dates_bouchon, by = "Annee") %>%
-    mutate(Station = STATION_RAPPORT_BOUCHON, Source = "Recrutement_Bouchon_2024",
+    left_join(dates_ecorecif, by = "Annee") %>%
+    mutate(Station = STATION_RAPPORT_ECORECIF, Source = "Recrutement_EcoRecif_2024",
            n_replicats = NA_integer_) %>%
     select(Station, Date, Annee, Taxon, Pourcentage_moyen, n_replicats, Source)
 
@@ -1825,12 +1825,12 @@ if (file.exists(FICHIER_BOUCHON_2024)) {
 
   Taxons_coralliens_historique <- bind_rows(
     Taxons_coralliens_relatif,
-    Recrutement_composition_bouchon
+    Recrutement_composition_ecorecif
   ) %>%
     arrange(Station, Date)
 
 } else {
-  warning("Fichier '", FICHIER_BOUCHON_2024, "' introuvable - donnees Bouchon 2024 non integrees.", call. = FALSE)
+  warning("Fichier '", FICHIER_ECORECIF_2024, "' introuvable - donnees Eco Récif Environnement 2024 non integrees.", call. = FALSE)
 }
 
 BDD_evolution_benthos <- BDD_evolution_benthos %>% arrange(Station, Date)
@@ -1852,7 +1852,7 @@ if (nrow(doublons_annee) > 0) {
 
 
 # --- Series longues RECRUES et OURSINS (extraction + historique) ----------
-# Recrues : historique (ATE + Bouchon) + moyenne des quadrats RECRUES, avec
+# Recrues : historique (ATE + Eco Récif Environnement) + moyenne des quadrats RECRUES, avec
 # l'ecart-type inter-quadrats pour les annees d'extraction.
 Recrues_longue <- BDD_evolution_benthos %>%
   filter(!is.na(Recrues_m2)) %>%
@@ -1863,15 +1863,15 @@ Recrues_longue <- BDD_evolution_benthos %>%
          Source = ifelse(Source == "Extraction_ReefDB_LIT", "Extraction_ReefDB_Quadrat", Source)) %>%
   dedoublonner_sources("Recrues_m2", libelle = "recrues/m2")
 
-# Oursins : rapport Bouchon (feuille Oursins_effectifs, Baleine uniquement)
+# Oursins : rapport Eco Récif Environnement (feuille Oursins_effectifs, Baleine uniquement)
 # + densite moyenne des quadrats OURSINS (section 1.4)
 Oursins_longue <- Oursins_modernes %>%
   mutate(Date = as.Date(paste0(Annee, "-01-01")), Source = "Extraction_ReefDB_Quadrat") %>%
   select(Station, Date, Annee, Densite_m2, Oursins_sd, Source)
 
-if (file.exists(FICHIERS$BOUCHON_2024) &&
-    "Oursins_effectifs" %in% excel_sheets(FICHIERS$BOUCHON_2024)) {
-  Oursins_historique <- read_excel(FICHIERS$BOUCHON_2024, sheet = "Oursins_effectifs", skip = 3) %>%
+if (file.exists(FICHIERS$ECORECIF_2024) &&
+    "Oursins_effectifs" %in% excel_sheets(FICHIERS$ECORECIF_2024)) {
+  Oursins_historique <- read_excel(FICHIERS$ECORECIF_2024, sheet = "Oursins_effectifs", skip = 3) %>%
     slice(1:4) %>%  # 4 especes ; le reste de la feuille = note de bas de page
     pivot_longer(-Espèce, names_to = "Annee_brute", values_to = "Effectif") %>%
     mutate(Annee = suppressWarnings(as.numeric(Annee_brute)),
@@ -1880,9 +1880,9 @@ if (file.exists(FICHIERS$BOUCHON_2024) &&
     group_by(Annee) %>%
     summarise(Effectif_total = sum(Effectif, na.rm = TRUE), .groups = "drop") %>%
     mutate(Densite_m2 = round(Effectif_total / SURFACE_HISTO_OURSINS_M2, 3),
-           Station = STATION_RAPPORT_BOUCHON, Source = "Rapport_Bouchon_2024",
+           Station = STATION_RAPPORT_ECORECIF, Source = "Rapport_EcoRecif_2024",
            Oursins_sd = NA_real_) %>%
-    left_join(DATES_CAMPAGNES_BOUCHON, by = "Annee") %>%
+    left_join(DATES_CAMPAGNES_ECORECIF, by = "Annee") %>%
     select(Station, Date, Annee, Densite_m2, Oursins_sd, Source)
   Oursins_longue <- bind_rows(Oursins_historique, Oursins_longue)
 }
@@ -2168,24 +2168,24 @@ for (station_value in unique(Recouvrement_LIt_annee$Station)) {
   sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "evolution"), paste("Recouvrement_LIt", station_value), "pleine")
 }
 
-## (b) Composition detaillee (categories fines, historique Bouchon inclus)
+## (b) Composition detaillee (categories fines, historique Eco Récif Environnement inclus)
 for (station_value in unique(Recouvrement_detail_historique$Station)) {
   df_station <- Recouvrement_detail_historique %>% filter(Station == station_value)
   p <- graph_empile(df_station, "Annee", "Pourcentage_moyen", "Categorie_detail", Palette_categorie_detail,
                     titre = str_wrap(paste("Composition detaillee du recouvrement -", station_value), 45),
-                    sous_titre = if (any(df_station$Source == "Rapport_Bouchon_2024"))
-                      "Annees 2018-2024 : rapport Bouchon & Bouchon-Navaro (2024)" else NULL,
+                    sous_titre = if (any(df_station$Source == "Rapport_EcoRecif_2024"))
+                      "Annees 2018-2024 : rapport Eco Récif Environnement (2024)" else NULL,
                     y_lab = "Recouvrement moyen (%)", legende_nrow = 4)
   sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "evolution"), paste("Composition_detaillee", station_value), "pleine")
 }
 
-## (c) Composition corallienne par taxon (LIT ; recrutement Bouchon)
+## (c) Composition corallienne par taxon (LIT ; recrutement Eco Récif Environnement)
 for (station_value in unique(Taxons_coralliens_historique$Station)) {
   df_station <- Taxons_coralliens_historique %>% filter(Station == station_value)
   p <- graph_empile(df_station, "Annee", "Pourcentage_moyen", "Taxon", Palette_taxons_coralliens,
                     titre = str_wrap(paste("Evolution de la composition corallienne par taxon -", station_value), 45),
-                    sous_titre = if (any(df_station$Source == "Recrutement_Bouchon_2024"))
-                      str_wrap("Composition relative (%, somme = 100 par annee) : 2022/2026 = corail adulte (LIT) ; 2018-2024 (Bouchon) = recrutement juvenile", 70) else NULL,
+                    sous_titre = if (any(df_station$Source == "Recrutement_EcoRecif_2024"))
+                      str_wrap("Composition relative (%, somme = 100 par annee) : 2022/2026 = corail adulte (LIT) ; 2018-2024 (Eco Récif Environnement) = recrutement juvenile", 70) else NULL,
                     y_lab = "Composition (%)", legende_ncol = 3, legende_italique = TRUE)
   sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "evolution"), paste("Taxons_coralliens", station_value), "pleine",
                hauteur = 16)
@@ -2233,15 +2233,15 @@ for (station_value in unique(Recouvrement_detail_historique$Station)) {
     scale_colour_identity() +
     scale_fill_viridis_c(option = "viridis", name = "% recouvrement") +
     labs(title = str_wrap(paste("Synthese du recouvrement benthique -", station_value), 45), y = NULL,
-         subtitle = if (any(Heatmap_data$Source == "Rapport_Bouchon_2024"))
-           "Annees 2018-2024 : rapport Bouchon & Bouchon-Navaro (2024)" else NULL) +
+         subtitle = if (any(Heatmap_data$Source == "Rapport_EcoRecif_2024"))
+           "Annees 2018-2024 : rapport Eco Récif Environnement (2024)" else NULL) +
     theme_fiche(legende = "right") +
     theme(axis.line = element_blank(), axis.ticks = element_blank(), legend.title = element_text(size = 9))
   sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "evolution"), paste("Heatmap_synthese", station_value), "standard",
                largeur = max(16, 3 * n_distinct(Heatmap_data$Annee) + 6), hauteur = 13)
 }
 
-## (g) Serie longue 2002-2026 (extraction + historique ATE + Bouchon 2024)
+## (g) Serie longue 2002-2026 (extraction + historique ATE + Eco Récif Environnement 2024)
 # NB : un graphique par station. L'annee 2022 peut apparaitre 2 fois :
 # "Historique ATE" (transects 60 m) et "Extraction ReefDB" (30 m) - 2
 # campagnes distinctes, conservees volontairement (cf. section 1.7).
@@ -2257,7 +2257,7 @@ for (station_value in unique(BDD_long$Station)) {
                    palette = Palette_indicateurs, unite = "%",
                    seuils = unlist(unname(SEUILS_REFERENCE[c("Corail dur", "Macroalgues")])),
                    titre = str_wrap(paste("Evolution 2002-2026 du recouvrement -", station_value), 45),
-                   sous_titre = "Rond = extraction ReefDB (30 m) ; triangle = historique ATE (60 m) ; carre = rapport Bouchon 2024\nCorail dur = scleractiniaires + hydrocoralliaires (Millepora)",
+                   sous_titre = "Rond = extraction ReefDB (30 m) ; triangle = historique ATE (60 m) ; carre = rapport Eco Récif Environnement 2024\nCorail dur = scleractiniaires + hydrocoralliaires (Millepora)",
                    y_lab = "Recouvrement (%)")
   ajouter_tendance(p, station = station_value)
   sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "evolution"), paste0("Evolution_2002_2026_", station_value), "pleine",
@@ -2273,7 +2273,7 @@ if (nrow(Recrues_longue) > 0) {
                    sd = "Recrues_sd", unite = "recrues/m²", decimales = 2,
                    seuils = SEUILS_REFERENCE[["Recrues"]],
                    titre = str_wrap("Evolution 2002-2026 de la densite de recrues coralliennes", 45),
-                   sous_titre = "Rond = extraction ReefDB (quadrat) ; triangle = historique ATE ; carre = rapport Bouchon 2024\nBarres d'erreur = ecart-type inter-quadrats (annees d'extraction)",
+                   sous_titre = "Rond = extraction ReefDB (quadrat) ; triangle = historique ATE ; carre = rapport Eco Récif Environnement 2024\nBarres d'erreur = ecart-type inter-quadrats (annees d'extraction)",
                    y_lab = "Recrues / m²")
   ajouter_tendance(p, "Recrues")
   sauver_graph(p, dossier_graph("BENTHOS", "RECRUES", NULL, "evolution"), "Evolution_2002_2026_recrues",
@@ -2302,7 +2302,7 @@ if (nrow(Oursins_longue) > 0) {
                    sd = "Oursins_sd", unite = "ind./m²", decimales = 2,
                    seuils = SEUILS_REFERENCE[["Oursins"]],
                    titre = str_wrap("Evolution de la densite totale d'oursins (tous taxons)", 45),
-                   sous_titre = "Rond = extraction ReefDB (quadrat) ; carre = rapport Bouchon 2024 (Baleine uniquement)\nBarres d'erreur = ecart-type inter-quadrats (annees d'extraction)",
+                   sous_titre = "Rond = extraction ReefDB (quadrat) ; carre = rapport Eco Récif Environnement 2024 (Baleine uniquement)\nBarres d'erreur = ecart-type inter-quadrats (annees d'extraction)",
                    y_lab = "Oursins / m²")
   ajouter_tendance(p, "Oursins")
   sauver_graph(p, dossier_graph("BENTHOS", "OURSINS", NULL, "evolution"), "Evolution_2018_2026_oursins",
@@ -2588,7 +2588,7 @@ p <- ggplot(BDD_poissons_long, aes(x = Annee, y = Valeur, colour = Station, grou
                   min.segment.length = 0.3, seed = 1) +
   facet_wrap(~Indicateur, scales = "free_y", ncol = 2) +
   labs(title = "Evolution des indicateurs poissons",
-       subtitle = "Rond = extraction ReefDB (BELT) ; carre = rapport Bouchon 2024 (Baleine uniquement)", y = NULL) +
+       subtitle = "Rond = extraction ReefDB (BELT) ; carre = rapport Eco Récif Environnement 2024 (Baleine uniquement)", y = NULL) +
   theme_fiche() + theme(legend.box = "vertical")
 sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", NULL, "evolution"), "Evolution_indicateurs_poissons", "panoramique", hauteur = 16)
 
@@ -2599,7 +2599,7 @@ for (code in names(Indicateurs_poissons)) {
   p <- graph_serie(df_ind, "Annee", "Valeur", "Station", palette = Palette_stations,
                    unite = "", decimales = 1, seuils = SEUILS_REFERENCE[[code]],
                    titre = Indicateurs_poissons[[code]],
-                   sous_titre = "Rond = extraction ReefDB (BELT) ; carre = rapport Bouchon 2024",
+                   sous_titre = "Rond = extraction ReefDB (BELT) ; carre = rapport Eco Récif Environnement 2024",
                    y_lab = Indicateurs_poissons[[code]])
   ajouter_tendance(p, code)
   sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", NULL, "evolution"), paste0("Evolution_", code), "standard")
@@ -2619,7 +2619,7 @@ for (station_value in unique(BDD_evolution_poissons$Station)) {
   }
 }
 
-## (d) Structure trophique (historique Bouchon + extraction) - memes
+## (d) Structure trophique (historique Eco Récif Environnement + extraction) - memes
 # couleurs que Palette_regime_trophique (abreviations He, Om... du rapport)
 Palette_trophique <- c(setNames(unname(Palette_regime_trophique[Abreviations_trophiques]), names(Abreviations_trophiques)),
                        "ND" = COULEUR_NON_RENSEIGNE)
@@ -2634,8 +2634,8 @@ for (param in unique(Trophique_historique$Paramètre)) {
     p <- graph_empile(df_param, "Annee", "Pourcentage", "Groupe_trophique", Palette_trophique,
                       labels_fill = Libelles_trophique, decimales = 0,
                       titre = str_wrap(paste0("Structure trophique (", param, ") - ", station_value), 55),
-                      sous_titre = if (any(df_param$Source == "Rapport_Bouchon_2024"))
-                        "2018-2024 = rapport Bouchon 2024 ; 2022/2026 = extraction ReefDB (BELT)" else NULL,
+                      sous_titre = if (any(df_param$Source == "Rapport_EcoRecif_2024"))
+                        "2018-2024 = rapport Eco Récif Environnement 2024 ; 2022/2026 = extraction ReefDB (BELT)" else NULL,
                       legende_nrow = 2)
     sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", station_value, "evolution"), paste0("Structure_trophique_", param, "_", station_value),
                  "standard")
@@ -3278,4 +3278,4 @@ if (dir.exists(DOSSIER_GRAPHS)) {
 - **BELT CORAIL - comptage** : les atteintes d'une meme ligne (necrose, SCTLD, autres maladies, blanchissement) sont considerees cumulables sur une meme colonie (`BELT_MODE_COMPTAGE = "cumul"`) ; les colonies mortes sont exclues des colonies vivantes.
 - **Seuils de reference** : `SEUILS_REFERENCE` est vide par defaut ; y renseigner les seuils GCRMN/IFRECOR retenus pour les voir apparaitre en pointille sur les graphiques.
 - **Analyses multivariees** : 2 stations x 2 annees d'extraction seulement - resultats exploratoires.
-- **Coraux_descripteurs et Autres_indicateurs** (rapport Bouchon 2024) restent inexploites : richesse/abondance corail historique comparable a BELT, tendances gorgones/eponges.
+- **Coraux_descripteurs et Autres_indicateurs** (rapport Eco Récif Environnement 2024) restent inexploites : richesse/abondance corail historique comparable a BELT, tendances gorgones/eponges.

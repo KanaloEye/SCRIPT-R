@@ -172,13 +172,13 @@ comparer_annees <- function(df, valeur, groupe = "Station", annee = "Annee") {
 
 # --- Doublons entre sources --------------------------------------------------
 # Plusieurs sources reprennent les memes chiffres (ex. le fichier ATE
-# integre les valeurs du rapport Bouchon 2020-2024 et la valeur ReefDB
+# integre les valeurs du rapport Eco Récif Environnement 2020-2024 et la valeur ReefDB
 # 2022). Pour une meme Station x Annee, une valeur IDENTIQUE (a la
 # tolerance pres) deja fournie par une source plus prioritaire est retiree,
 # pour ne pas afficher deux fois la meme mesure ni gonfler les tendances.
-# Priorite : extraction ReefDB > historique ATE > rapport Bouchon.
+# Priorite : extraction ReefDB > historique ATE > rapport Eco Récif Environnement.
 PRIORITE_SOURCES <- c("Extraction_ReefDB_LIT", "Extraction_ReefDB_Quadrat", "Extraction_ReefDB_BELT",
-                      "Historique_ATE", "Rapport_Bouchon_2024", "Recrutement_Bouchon_2024")
+                      "Historique_ATE", "Rapport_EcoRecif_2024", "Recrutement_EcoRecif_2024")
 
 dedoublonner_sources <- function(df, valeur, groupes = c("Station", "Annee"), tolerance = 0.015, libelle = valeur) {
   if (is.null(df) || nrow(df) == 0) return(df)

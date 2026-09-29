@@ -14,8 +14,8 @@ CAMPAGNES <- list(
   ATE_Coco        = c(2003:2012, 2016, 2017, 2018, 2022),
   ATE_Coco_sans_recrues = c(2007, 2010),        # recrues non renseignees
   Double_campagne = list(Baleine = 2002:2006, Coco = 2003:2006),
-  Bouchon_rapport = c(2018, 2020, 2023, 2024),  # Baleine uniquement
-  Bouchon_Coco_vide = 2024,                     # ligne vide dans l'ATE
+  EcoRecif_rapport = c(2018, 2020, 2023, 2024),  # Baleine uniquement
+  EcoRecif_Coco_vide = 2024,                     # ligne vide dans l'ATE
   Creocean        = c(2022, 2026)
 )
 
@@ -23,9 +23,9 @@ CAMPAGNES <- list(
 Sources_inventaire <- c(
   "BD Recif - donnees brutes"                          = "#1B7837",
   "Excel Creocean - donnees brutes non bancarisees"    = "#7FBF7B",
-  "Rapport Bouchon 2024 - valeurs retranscrites du PDF" = "#F4A261",
+  "Rapport Eco Récif Environnement 2024 - valeurs retranscrites du PDF" = "#F4A261",
   "Historique ATE - valeurs compilees des rapports"    = "#FFE08A",
-  "Donnees Bouchon a priori existantes, non transmises" = "#D9D9D9"
+  "Donnees Eco Récif Environnement a priori existantes, non transmises" = "#D9D9D9"
 )
 S <- names(Sources_inventaire)
 
@@ -34,7 +34,7 @@ construire_inventaire <- function() {
     if (length(annees) == 0) return(NULL)
     tibble::tibble(Protocole = protocole, Station = station, Annee = annees, Source = source, Inclus = inclus)
   }
-  B <- CAMPAGNES$ATE_Baleine; C <- CAMPAGNES$ATE_Coco; R <- CAMPAGNES$Bouchon_rapport; N <- CAMPAGNES$Creocean
+  B <- CAMPAGNES$ATE_Baleine; C <- CAMPAGNES$ATE_Coco; R <- CAMPAGNES$EcoRecif_rapport; N <- CAMPAGNES$Creocean
   hist_B <- setdiff(B, c(R, N)); hist_C <- setdiff(C, N)
   dplyr::bind_rows(
     # LIT - recouvrement benthique
@@ -42,20 +42,20 @@ construire_inventaire <- function() {
     ligne("LIT - recouvrement benthique", "Baleine", R, S[3]),
     ligne("LIT - recouvrement benthique", "Baleine", N, S[1]),
     ligne("LIT - recouvrement benthique", "Coco", hist_C, S[4]),
-    ligne("LIT - recouvrement benthique", "Coco", CAMPAGNES$Bouchon_Coco_vide, S[5], FALSE),
+    ligne("LIT - recouvrement benthique", "Coco", CAMPAGNES$EcoRecif_Coco_vide, S[5], FALSE),
     ligne("LIT - recouvrement benthique", "Coco", N, S[1]),
     # Recrues coralliennes
     ligne("Recrues coralliennes", "Baleine", hist_B, S[4]),
     ligne("Recrues coralliennes", "Baleine", R, S[3]),
     ligne("Recrues coralliennes", "Baleine", N, S[1]),
     ligne("Recrues coralliennes", "Coco", setdiff(hist_C, CAMPAGNES$ATE_Coco_sans_recrues), S[4]),
-    ligne("Recrues coralliennes", "Coco", c(CAMPAGNES$ATE_Coco_sans_recrues, CAMPAGNES$Bouchon_Coco_vide), S[5], FALSE),
+    ligne("Recrues coralliennes", "Coco", c(CAMPAGNES$ATE_Coco_sans_recrues, CAMPAGNES$EcoRecif_Coco_vide), S[5], FALSE),
     ligne("Recrues coralliennes", "Coco", N, S[1]),
     # Oursins
     ligne("Oursins", "Baleine", hist_B, S[5], FALSE),
     ligne("Oursins", "Baleine", R, S[3]),
     ligne("Oursins", "Baleine", N, S[1]),
-    ligne("Oursins", "Coco", c(hist_C, CAMPAGNES$Bouchon_Coco_vide), S[5], FALSE),
+    ligne("Oursins", "Coco", c(hist_C, CAMPAGNES$EcoRecif_Coco_vide), S[5], FALSE),
     ligne("Oursins", "Coco", N, S[1]),
     # Macroalgues (quadrats)
     ligne("Macroalgues (quadrats)", "Baleine", N, S[1]),
@@ -67,7 +67,7 @@ construire_inventaire <- function() {
     ligne("Poissons (BELT)", "Baleine", hist_B, S[5], FALSE),
     ligne("Poissons (BELT)", "Baleine", R, S[3]),
     ligne("Poissons (BELT)", "Baleine", N, S[1]),
-    ligne("Poissons (BELT)", "Coco", c(hist_C, CAMPAGNES$Bouchon_Coco_vide), S[5], FALSE),
+    ligne("Poissons (BELT)", "Coco", c(hist_C, CAMPAGNES$EcoRecif_Coco_vide), S[5], FALSE),
     ligne("Poissons (BELT)", "Coco", N, S[1])
   ) %>%
     dplyr::mutate(
@@ -99,7 +99,7 @@ graph_etat_bancarisation <- function(inventaire) {
                   subtitle = "Source de la donnee par annee ; ✓ = utilisee dans le traitement 2026 ; ✗ = non utilisee ; case vide = pas de donnee connue",
                   caption = paste0("² deux campagnes dans l'annee (moyennees dans les graphiques).  ",
                                    "Coraux - colonies : protocole BELT realise en 2022 (toutes colonies) et 2026 (colonies > 10 cm), non comparables.\n",
-                                   "Suivi Bouchon 2002-2024 (donnees brutes Excel non transmises) ; campagnes 2022 et 2026 Creocean."),
+                                   "Suivi Eco Récif Environnement 2002-2024 (donnees brutes Excel non transmises) ; campagnes 2022 et 2026 Creocean."),
                   x = NULL, y = NULL) +
     theme_fiche(legende = "bottom") +
     ggplot2::theme(axis.line = ggplot2::element_blank(), axis.ticks = ggplot2::element_blank(),

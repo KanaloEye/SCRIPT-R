@@ -16,27 +16,27 @@ Palette_indicateurs <- c(
 # --- Sources de donnees ------------------------------------------------------
 # Formes FIXEES explicitement (sinon ggplot attribue rond/triangle/carre
 # dans l'ordre alphabetique des sources presentes sur chaque graphique).
-#   rond = extraction ReefDB ; triangle = historique ATE ; carre = Bouchon 2024
+#   rond = extraction ReefDB ; triangle = historique ATE ; carre = Eco Récif Environnement 2024
 Formes_source <- c(
   "Extraction_ReefDB_LIT"     = 16,
   "Extraction_ReefDB_Quadrat" = 16,
   "Extraction_ReefDB_BELT"    = 16,
   "Historique_ATE"            = 17,
-  "Rapport_Bouchon_2024"      = 15
+  "Rapport_EcoRecif_2024"      = 15
 )
 Libelles_source <- c(
   "Extraction_ReefDB_LIT"     = "Extraction ReefDB",
   "Extraction_ReefDB_Quadrat" = "Extraction ReefDB",
   "Extraction_ReefDB_BELT"    = "Extraction ReefDB",
   "Historique_ATE"            = "Historique ATE",
-  "Rapport_Bouchon_2024"      = "Rapport Bouchon 2024"
+  "Rapport_EcoRecif_2024"      = "Rapport Eco Récif Environnement 2024"
 )
 Couleurs_source <- c(
   "Extraction_ReefDB_LIT"     = "steelblue3",
   "Extraction_ReefDB_Quadrat" = "steelblue3",
   "Extraction_ReefDB_BELT"    = "steelblue3",
   "Historique_ATE"            = "grey60",
-  "Rapport_Bouchon_2024"      = "darkorange2"
+  "Rapport_EcoRecif_2024"      = "darkorange2"
 )
 
 # --- Benthos LIT -------------------------------------------------------------
@@ -165,7 +165,7 @@ Palette_regime_trophique <- c("Herbivore" = 'yellowgreen',
 Ordre_regime_trophique <- c("Herbivore", "Omnivore", "Planctonophage",
                             "Carnivore1", "Carnivore2", "Piscivore")
 
-# Abreviations du rapport Bouchon (He, Om...) -> memes couleurs
+# Abreviations du rapport Eco Récif Environnement (He, Om...) -> memes couleurs
 Abreviations_trophiques <- c("He" = "Herbivore", "Om" = "Omnivore", "Pl" = "Planctonophage",
                              "C1" = "Carnivore1", "C2" = "Carnivore2", "Pi" = "Piscivore")
 
