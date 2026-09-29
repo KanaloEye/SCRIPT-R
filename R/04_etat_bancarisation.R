@@ -108,3 +108,86 @@ graph_etat_bancarisation <- function(inventaire) {
                    legend.text = ggplot2::element_text(size = 8)) +
     ggplot2::guides(fill = ggplot2::guide_legend(ncol = 2, byrow = FALSE))
 }
+
+# --- Version Excel modifiable ------------------------------------------------
+# Meme tableau que la figure : une ligne par protocole x station, une colonne
+# par annee. Chaque case contient un CODE de source + un symbole, choisi dans
+# une liste deroulante ; la couleur de la case suit automatiquement le code
+# (mise en forme conditionnelle) : modifier le texte suffit.
+Codes_sources <- c("BDR" = S[1], "XLS" = S[2], "RPT" = S[3], "ATE" = S[4], "NT" = S[5])
+
+exporter_etat_bancarisation_excel <- function(inventaire, chemin) {
+  code <- setNames(names(Codes_sources), Codes_sources)
+  lignes <- as.vector(outer(c("Baleine", "Coco"), unique(inventaire$Protocole), function(s, p) paste0(p, " | ", s)))
+  tab <- inventaire %>%
+    dplyr::mutate(Ligne = paste0(Protocole, " | ", Station),
+                  Valeur = paste(code[Source], Symbole)) %>%
+    dplyr::select(Ligne, Annee, Valeur) %>%
+    tidyr::complete(Ligne = lignes, Annee = ANNEES_INVENTAIRE, fill = list(Valeur = "")) %>%
+    dplyr::arrange(factor(Ligne, levels = lignes), Annee) %>%
+    tidyr::pivot_wider(names_from = Annee, values_from = Valeur) %>%
+    dplyr::rename(`Protocole | Station` = Ligne)
+
+  wb <- openxlsx::createWorkbook()
+  f <- "Tableau"
+  openxlsx::addWorksheet(wb, f, gridLines = FALSE)
+  openxlsx::writeData(wb, f, "Etat de la bancarisation des donnees du suivi GCRMN de Saint-Barthelemy",
+                      startRow = 1, startCol = 1)
+  openxlsx::writeData(wb, f, paste("✓ = utilisee dans le traitement 2026 ; ✗ = non utilisee ;",
+                                   "² = deux campagnes dans l'annee ; case vide = pas de donnee connue.",
+                                   "Modifier une case avec la liste deroulante : la couleur suit le code."),
+                      startRow = 2, startCol = 1)
+  openxlsx::addStyle(wb, f, openxlsx::createStyle(fontSize = 14, textDecoration = "bold"), rows = 1, cols = 1)
+  openxlsx::addStyle(wb, f, openxlsx::createStyle(fontSize = 9, textDecoration = "italic"), rows = 2, cols = 1)
+
+  debut <- 4
+  openxlsx::writeData(wb, f, tab, startRow = debut, startCol = 1,
+                      headerStyle = openxlsx::createStyle(textDecoration = "bold", halign = "center",
+                                                          textRotation = 90, border = "Bottom"))
+  n_l <- nrow(tab); n_c <- ncol(tab)
+  lignes_donnees <- (debut + 1):(debut + n_l); cols_annees <- 2:n_c
+  openxlsx::addStyle(wb, f, openxlsx::createStyle(halign = "center", valign = "center", fontSize = 9,
+                                                  border = "TopBottomLeftRight", borderColour = "white"),
+                     rows = lignes_donnees, cols = cols_annees, gridExpand = TRUE)
+  openxlsx::addStyle(wb, f, openxlsx::createStyle(textDecoration = "bold", fontSize = 10),
+                     rows = lignes_donnees, cols = 1, gridExpand = TRUE)
+  openxlsx::setColWidths(wb, f, cols = 1, widths = 36)
+  openxlsx::setColWidths(wb, f, cols = cols_annees, widths = 7.5)
+  openxlsx::setRowHeights(wb, f, rows = debut, heights = 38)
+  openxlsx::setRowHeights(wb, f, rows = lignes_donnees, heights = 22)
+  openxlsx::freezePane(wb, f, firstActiveRow = debut + 1, firstActiveCol = 2)
+
+  # couleur automatique selon le code
+  for (k in names(Codes_sources)) {
+    coul <- Sources_inventaire[[Codes_sources[[k]]]]
+    police <- if (k == "BDR") "#FFFFFF" else "#262626"
+    openxlsx::conditionalFormatting(wb, f, cols = cols_annees, rows = lignes_donnees, type = "beginsWith",
+                                    rule = paste0(k, " "),
+                                    style = openxlsx::createStyle(bgFill = coul, fontColour = police))
+  }
+
+  # feuille des listes + legende
+  choix <- c(paste(rep(names(Codes_sources), each = 2), c("✓", "✗")), "ATE ✓²", "")
+  openxlsx::addWorksheet(wb, "Legende")
+  legende <- tibble::tibble(Code = names(Codes_sources), Signification = unname(Codes_sources))
+  openxlsx::writeData(wb, "Legende", legende, startRow = 1, startCol = 1,
+                      headerStyle = openxlsx::createStyle(textDecoration = "bold"))
+  for (i in seq_len(nrow(legende))) {
+    openxlsx::addStyle(wb, "Legende", openxlsx::createStyle(fgFill = Sources_inventaire[[legende$Signification[i]]],
+                                                            fontColour = if (legende$Code[i] == "BDR") "#FFFFFF" else "#262626"),
+                       rows = i + 1, cols = 1:2, gridExpand = TRUE)
+  }
+  openxlsx::writeData(wb, "Legende", c("✓ = donnee utilisee dans le traitement 2026",
+                                       "✗ = donnee non utilisee",
+                                       "² = deux campagnes dans l'annee (moyennees)",
+                                       "Case vide = pas de donnee connue"),
+                      startRow = nrow(legende) + 3, startCol = 1)
+  openxlsx::writeData(wb, "Legende", data.frame(`Valeurs possibles` = choix, check.names = FALSE),
+                      startRow = 1, startCol = 4, headerStyle = openxlsx::createStyle(textDecoration = "bold"))
+  openxlsx::setColWidths(wb, "Legende", cols = c(1, 2, 4), widths = c(8, 55, 18))
+  openxlsx::dataValidation(wb, f, cols = cols_annees, rows = lignes_donnees, type = "list",
+                           value = sprintf("'Legende'!$D$2:$D$%d", length(choix) + 1))
+
+  openxlsx::saveWorkbook(wb, chemin, overwrite = TRUE)
+  invisible(chemin)
+}

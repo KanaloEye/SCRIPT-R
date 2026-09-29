@@ -59,9 +59,8 @@ sauver_graph(p_bancarisation, "0_ETAT_BANCARISATION", "Etat_bancarisation_donnee
 ggplot2::ggsave(file.path(DOSSIER_GRAPHS, "0_ETAT_BANCARISATION", "Etat_bancarisation_donnees_avec_titre.png"),
                 p_bancarisation, width = 30, height = 15, units = "cm", dpi = DPI_EXPORT, bg = "white")
 dir.create(DOSSIER_BDD, showWarnings = FALSE, recursive = TRUE)
-write_xlsx(Inventaire_bancarisation %>% select(Protocole, Station, Annee, Source, Inclus_traitement_2026 = Inclus) %>%
-             arrange(Protocole, Station, Annee),
-           file.path(DOSSIER_BDD, "ETAT_BANCARISATION.xlsx"))
+# Tableau Excel modifiable (meme presentation que la figure, couleurs automatiques)
+exporter_etat_bancarisation_excel(Inventaire_bancarisation, file.path(DOSSIER_BDD, "ETAT_BANCARISATION.xlsx"))
 p_bancarisation
 ```
 
