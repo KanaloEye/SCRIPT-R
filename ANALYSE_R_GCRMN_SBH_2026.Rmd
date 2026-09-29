@@ -445,22 +445,47 @@ if (file.exists(FICHIER_BELT_CORAIL)) {
       filter(!is.na(Nombre), Nombre > 0) %>%
       mutate(Etat_sante = str_remove(Etat_sante, "^Nb_"))
 
-    ## Nombre de colonies par ligne de saisie (espece x transect), selon
-    # BELT_MODE_COMPTAGE (cf. R/00_parametres.R) : "somme" = chaque etat
-    # est une colonie differente ; "max" = une colonie peut cumuler
-    # plusieurs etats (colonies = plus grand des comptages de la ligne).
-    cols_etat_vivants <- setdiff(cols_etat, paste0("Nb_", ETATS_EXCLUS_ABONDANCE))
-    n_lignes_multi_etats <- sum(rowSums(BELT_CORAIL[, cols_etat_vivants] > 0, na.rm = TRUE) > 1)
-    cat("\nBELT : ", n_lignes_multi_etats, " ligne(s) avec plusieurs etats renseignes - mode de comptage = '",
+    ## Decomposition de chaque ligne de saisie (espece x transect) en
+    # colonies SAINES, ATTEINTES (vivantes) et MORTES, sans double comptage.
+    # Une meme colonie peut presenter plusieurs atteintes (ex. une colonie
+    # SCTLD est aussi necrosee) : avec BELT_MODE_COMPTAGE = "cumul", le nombre
+    # de colonies atteintes d'une ligne = le plus grand des comptages
+    # d'atteinte (et non leur somme, qui comptait la meme colonie 2 ou 3
+    # fois). Les colonies mortes (recent / ancien) ne sont PAS des coraux
+    # vivants : exclues de l'abondance et de la diversite.
+    # Pour la composition de l'etat de sante (categories exclusives), les
+    # colonies atteintes sont attribuees par gravite : SCTLD, autres
+    # maladies, blanchissement, puis necrose seule.
+    etats_atteinte <- intersect(paste0("Nb_", ETATS_ATTEINTE_BELT), cols_etat)
+    etats_morts    <- intersect(paste0("Nb_", ETATS_MORTS_BELT), cols_etat)
+    n_lignes_multi <- sum(rowSums(BELT_CORAIL[, etats_atteinte] > 0, na.rm = TRUE) > 1)
+    cat("\nBELT : ", n_lignes_multi, " ligne(s) avec plusieurs atteintes renseignees - mode de comptage = '",
         BELT_MODE_COMPTAGE, "'\n", sep = "")
-    BELT_colonies_ligne <- BELT_CORAIL %>%
-      mutate(.ligne = row_number()) %>%
-      select(.ligne, Programme, Station, Annee, Replicat, Taxon, all_of(cols_etat_vivants)) %>%
-      pivot_longer(all_of(cols_etat_vivants), names_to = "Etat_sante", values_to = "Nombre") %>%
-      mutate(Nombre = replace_na(Nombre, 0)) %>%
-      group_by(.ligne, Programme, Station, Annee, Replicat, Taxon) %>%
-      summarise(Nb_colonies = if (BELT_MODE_COMPTAGE == "max") max(Nombre) else sum(Nombre),
-                .groups = "drop") %>%
+
+    val <- function(col) if (col %in% names(BELT_CORAIL)) replace_na(BELT_CORAIL[[col]], 0) else 0
+    mat_atteinte <- as.matrix(as.data.frame(lapply(etats_atteinte, val)))
+    n_atteintes <- if (length(etats_atteinte) == 0) 0 else
+      if (BELT_MODE_COMPTAGE == "somme") rowSums(mat_atteinte) else apply(mat_atteinte, 1, max)
+
+    # attribution exclusive par gravite (pour la composition de l'etat de sante)
+    reste <- n_atteintes
+    attribution <- list()
+    for (etat in intersect(paste0("Nb_", c("SCTLD", "Autres_Maladies", "Blanchissement", "Necrose")), etats_atteinte)) {
+      attribution[[sub("^Nb_", "", etat)]] <- pmin(val(etat), reste)
+      reste <- reste - attribution[[sub("^Nb_", "", etat)]]
+    }
+
+    BELT_colonies <- BELT_CORAIL %>%
+      mutate(.ligne = row_number(),
+             Saines = val("Nb_Sain"),
+             Atteintes = n_atteintes,
+             Vivantes = Saines + Atteintes,
+             Mort_Recent = val("Nb_Mort_Recent"),
+             Mort_Ancien = val("Nb_Mort_Ancien")) %>%
+      bind_cols(as_tibble(attribution))
+
+    BELT_colonies_ligne <- BELT_colonies %>%
+      select(.ligne, Programme, Station, Annee, Replicat, Taxon, Nb_colonies = Vivantes) %>%
       filter(Nb_colonies > 0)
 
     ## (1) ABONDANCE : colonies / 10 m² par replicat, puis moyenne +/- ET
@@ -514,10 +539,15 @@ if (file.exists(FICHIER_BELT_CORAIL)) {
       cat("\nAucune colonne Taxon/Espece dans le fichier BELT - graphique de diversite non produit.\n")
     }
 
-    ## (3) ETAT DE SANTE : composition (%) et densite par Station x Annee
-    Etat_sante_BELT <- BELT_CORAIL_long %>%
+    ## (3) ETAT DE SANTE : composition (%) des colonies recensees, en
+    # categories exclusives (une colonie = une seule categorie)
+    Etat_sante_BELT <- BELT_colonies %>%
+      select(Programme, Station, Annee, Sain = Saines,
+             any_of(c(names(attribution), "Mort_Recent", "Mort_Ancien"))) %>%
+      pivot_longer(-c(Programme, Station, Annee), names_to = "Etat_sante", values_to = "Nombre") %>%
       group_by(Programme, Station, Annee, Etat_sante) %>%
       summarise(Nombre_colonies = sum(Nombre), .groups = "drop") %>%
+      filter(Nombre_colonies > 0) %>%
       left_join(Surface_totale_BELT, by = c("Station", "Annee")) %>%
       group_by(Station, Annee) %>%
       mutate(
@@ -526,18 +556,14 @@ if (file.exists(FICHIER_BELT_CORAIL)) {
       ) %>%
       ungroup()
 
-    cat("\nApercu - Etat_sante_BELT :\n")
+    cat("\nApercu - Etat_sante_BELT (categories exclusives) :\n")
     print(Etat_sante_BELT, n = Inf)
 
-    # Indicateur synthetique : taux de colonies atteintes (tout sauf Sain)
-    Taux_atteinte_BELT <- BELT_CORAIL_long %>%
-      mutate(Categorie = ifelse(Etat_sante == "Sain", "Saine", "Atteinte")) %>%
-      group_by(Programme, Station, Annee, Categorie) %>%
-      summarise(Nombre = sum(Nombre), .groups = "drop") %>%
-      pivot_wider(names_from = Categorie, values_from = Nombre, values_fill = 0)
-    if (!"Saine" %in% names(Taux_atteinte_BELT))    Taux_atteinte_BELT$Saine <- 0
-    if (!"Atteinte" %in% names(Taux_atteinte_BELT)) Taux_atteinte_BELT$Atteinte <- 0
-    Taux_atteinte_BELT <- Taux_atteinte_BELT %>%
+    # Indicateur synthetique : % de colonies VIVANTES atteintes
+    Taux_atteinte_BELT <- BELT_colonies %>%
+      group_by(Programme, Station, Annee) %>%
+      summarise(Saine = sum(Saines), Atteinte = sum(Atteintes),
+                Mortes_recentes = sum(Mort_Recent), .groups = "drop") %>%
       mutate(
         Total = Saine + Atteinte,
         Pct_atteinte = round(100 * Atteinte / Total, 1)
@@ -2291,7 +2317,7 @@ if (is.null(Etat_sante_BELT) && is.null(Abondance_BELT)) {
         comparaisons = if (!is.null(Comparaison_abondance_BELT)) Comparaison_abondance_BELT %>% filter(Station == station_value),
         titre = str_wrap(paste("Abondance des coraux -", station_value), 50),
         sous_titre = paste0("Colonies vivantes / 10 m² (moyenne +/- ET des replicats 10 x 1 m)",
-                            if (length(ETATS_EXCLUS_ABONDANCE) > 0) paste0(" - hors ", paste(ETATS_EXCLUS_ABONDANCE, collapse = ", ")) else "",
+                            " - hors colonies mortes",
                             "\n* test de Wilcoxon vs annee de suivi precedente"),
         y_lab = "Colonies / 10 m²", couleur = "lightsalmon3")
       sauver_graph(graphs_station$abondance, dossier_graph("BENTHOS", "BELT_CORAUX", station_value, "evolution"), paste0("Abondance_coraux_", station_value), "large")
@@ -3196,7 +3222,7 @@ if (dir.exists(DOSSIER_GRAPHS)) {
 ```
 
 ## Points d'attention
-- **BELT CORAIL - comptage** : `BELT_MODE_COMPTAGE` (R/00_parametres.R) indique si une ligne avec plusieurs etats (ex. Nb_Sain = 1 et Nb_Necrose = 1) correspond a 2 colonies ("somme") ou 1 colonie ("max"). A confirmer selon la fiche de terrain.
+- **BELT CORAIL - comptage** : les atteintes d'une meme ligne (necrose, SCTLD, autres maladies, blanchissement) sont considerees cumulables sur une meme colonie (`BELT_MODE_COMPTAGE = "cumul"`) ; les colonies mortes sont exclues des colonies vivantes.
 - **Seuils de reference** : `SEUILS_REFERENCE` est vide par defaut ; y renseigner les seuils GCRMN/IFRECOR retenus pour les voir apparaitre en pointille sur les graphiques.
 - **Analyses multivariees** : 2 stations x 2 annees d'extraction seulement - resultats exploratoires.
 - **Coraux_descripteurs et Autres_indicateurs** (rapport Bouchon 2024) restent inexploites : richesse/abondance corail historique comparable a BELT, tendances gorgones/eponges.

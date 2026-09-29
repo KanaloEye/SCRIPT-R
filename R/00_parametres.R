@@ -82,16 +82,19 @@ SURFACE_BELT_PAR_DEFAUT_M2    <- 10    # 10 m x 1 m si non renseigne
 SURFACE_HISTO_OURSINS_M2      <- 60    # rapport Bouchon : effectifs / 60 m2
 SURFACE_HISTO_RECRUES_M2      <- 30    # rapport Bouchon : juveniles / 30 m2
 
-# BELT CORAIL - etats exclus de l'abondance / de la diversite (colonies
-# mortes depuis longtemps = squelettes). character(0) pour tout compter.
-ETATS_EXCLUS_ABONDANCE <- c("Mort_Ancien")
+# BELT CORAIL - etats de sante
+#  - atteintes (colonies VIVANTES atteintes) : peuvent se cumuler sur une
+#    meme colonie (ex. une colonie SCTLD est aussi necrosee)
+#  - mortes : colonies mortes, exclues de l'abondance et de la diversite
+ETATS_ATTEINTE_BELT <- c("Necrose", "SCTLD", "Autres_Maladies", "Blanchissement")
+ETATS_MORTS_BELT    <- c("Mort_Recent", "Mort_Ancien")
 
-# BELT CORAIL - lecture d'une ligne ou PLUSIEURS etats sont renseignes
-# (ex. Nb_Sain = 1 et Nb_Necrose = 1 pour une meme espece d'un transect) :
-#   "somme" : les etats sont des colonies DIFFERENTES (1 saine + 1 necrosee = 2 colonies)
-#   "max"   : une colonie peut cumuler plusieurs etats (colonies = plus grand des comptages)
-# A FAIRE CONFIRMER selon la fiche de terrain.
-BELT_MODE_COMPTAGE <- "somme"
+# BELT CORAIL - nombre de colonies atteintes sur une ligne ou plusieurs
+# atteintes sont renseignees (ex. Nb_Necrose = 6 et Nb_SCTLD = 2) :
+#   "cumul" : une colonie peut cumuler plusieurs atteintes -> colonies
+#             atteintes = le plus grand des comptages (6 ici)
+#   "somme" : chaque atteinte concerne des colonies differentes (8 ici)
+BELT_MODE_COMPTAGE <- "cumul"
 
 # Categories LIT comptees comme "algues" dans l'indicateur Algues/Corail.
 # Les algues calcaires encroutantes (corallinacees) en sont exclues : ce

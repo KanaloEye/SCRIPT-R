@@ -54,5 +54,5 @@ Au lancement, l'ancien `R_PLOT` est archivé dans `R_PLOT_ANCIEN`.
 - `FORMATS_EXPORT` : tailles des graphiques (cm).
 - `GRAPHS_SANS_TITRE` : titre retiré des graphiques (écrit dans Canva).
 - `ARBORESCENCE` : thèmes et protocoles, dans l'ordre des dossiers de `R_PLOT`.
-- `BELT_MODE_COMPTAGE` : `"somme"` ou `"max"` pour une ligne BELT avec plusieurs états. **À confirmer.**
+- `BELT_MODE_COMPTAGE` : `"cumul"` (une colonie peut cumuler plusieurs atteintes, par défaut) ou `"somme"`.
 - `SEUILS_REFERENCE` : lignes de seuil en pointillé sur les graphiques (vide par défaut).
