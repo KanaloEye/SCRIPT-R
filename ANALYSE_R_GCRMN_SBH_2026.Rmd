@@ -40,11 +40,29 @@ source("R/00_parametres.R",           encoding = "UTF-8")
 source("R/01_palettes.R",             encoding = "UTF-8")
 source("R/02_fonctions_outils.R",     encoding = "UTF-8")
 source("R/03_fonctions_graphiques.R", encoding = "UTF-8")
+source("R/04_etat_bancarisation.R",   encoding = "UTF-8")
 
 # Verification des fichiers obligatoires AVANT de lancer les calculs
 invisible(lapply(FICHIERS_OBLIGATOIRES, verifier_fichier))
 preparer_dossier_graphs()   # archive l'ancien R_PLOT (cf. ARCHIVER_ANCIEN_R_PLOT)
 dir.create(DOSSIER_BANCARISATION, showWarnings = FALSE)
+```
+
+# 0 Etat de la bancarisation des donnees
+Inventaire des donnees disponibles par annee, protocole et station, avec leur source et leur utilisation dans le traitement 2026 (a mettre a jour dans `R/04_etat_bancarisation.R`).
+```{r, fig.width = 12, fig.height = 6.5}
+Inventaire_bancarisation <- construire_inventaire()
+p_bancarisation <- graph_etat_bancarisation(Inventaire_bancarisation)
+sauver_graph(p_bancarisation, "0_ETAT_BANCARISATION", "Etat_bancarisation_donnees", "panoramique",
+             largeur = 30, hauteur = 15)
+# le titre sert ici : version avec titre, meme si GRAPHS_SANS_TITRE est actif
+ggplot2::ggsave(file.path(DOSSIER_GRAPHS, "0_ETAT_BANCARISATION", "Etat_bancarisation_donnees_avec_titre.png"),
+                p_bancarisation, width = 30, height = 15, units = "cm", dpi = DPI_EXPORT, bg = "white")
+dir.create(DOSSIER_BDD, showWarnings = FALSE, recursive = TRUE)
+write_xlsx(Inventaire_bancarisation %>% select(Protocole, Station, Annee, Source, Inclus_traitement_2026 = Inclus) %>%
+             arrange(Protocole, Station, Annee),
+           file.path(DOSSIER_BDD, "ETAT_BANCARISATION.xlsx"))
+p_bancarisation
 ```
 
 # 1 Extraction et mise en forme des tables de données
