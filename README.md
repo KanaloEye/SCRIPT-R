@@ -55,5 +55,4 @@ Au lancement, l'ancien `R_PLOT` est archivé dans `R_PLOT_ANCIEN`.
 - `GRAPHS_SANS_TITRE` : titre retiré des graphiques (écrit dans Canva).
 - `ARBORESCENCE` : thèmes et protocoles, dans l'ordre des dossiers de `R_PLOT`.
 - `BELT_MODE_COMPTAGE` : `"cumul"` (une colonie peut cumuler plusieurs atteintes, par défaut) ou `"somme"`.
-- `ANNEES_POISSONS_LISTE_RESTREINTE` : années de comptage poissons limité à une liste d'espèces (2022 : 61 espèces). Elles sont signalées sur les graphiques d'évolution, et les chiffres clés donnent aussi une évolution « à liste égale ».
 - `SEUILS_REFERENCE` : lignes de seuil en pointillé sur les graphiques (vide par défaut).

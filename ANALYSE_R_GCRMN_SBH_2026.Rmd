@@ -877,17 +877,6 @@ Liste_Poissons_biometrie <- read.xlsx(
 nettoyer_taxon <- function(x) str_squish(gsub("\u00a0", " ", x))
 Liste_Poissons_biometrie <- Liste_Poissons_biometrie %>% mutate(Taxon = nettoyer_taxon(Taxon))
 
-# Liste restreinte d'especes utilisee en 2022 = les
-# NB_ESPECES_LISTE_RESTREINTE premieres lignes du referentiel (lue AVANT le
-# dedoublonnage, qui change l'ordre des lignes). Cf. R/00_parametres.R.
-Taxons_liste_restreinte <- head(Liste_Poissons_biometrie$Taxon, NB_ESPECES_LISTE_RESTREINTE)
-dans_liste_restreinte <- function(taxon) {
-  taxon <- nettoyer_taxon(taxon)
-  taxon <- ifelse(taxon %in% names(SYNONYMES_TAXONS_POISSONS),
-                  unname(SYNONYMES_TAXONS_POISSONS[taxon]), taxon)
-  taxon %in% Taxons_liste_restreinte
-}
-
 # Doublons du referentiel : signaler ceux dont le regime trophique differe
 # (le choix de la ligne gardee change alors les resultats)
 doublons_conflit <- Liste_Poissons_biometrie %>%
@@ -1392,8 +1381,7 @@ Surface_totale_poissons <- Surface_replicats_poissons %>%
   summarise(Surface_totale_m2 = sum(Surface_replicat_m2, na.rm = TRUE), .groups = "drop") %>%
   mutate(Annee = as.numeric(Annee))
 
-calculer_indicateurs_poissons <- function(P, PC) {
-  P %>%
+Poissons_indicateurs_modernes <- POISSONS %>%
   group_by(Programme, Station, Annee) %>%
   summarise(
     Effectifs_totaux  = sum(Abondance, na.rm = TRUE),
@@ -1403,7 +1391,7 @@ calculer_indicateurs_poissons <- function(P, PC) {
   ) %>%
   mutate(Annee = as.numeric(Annee)) %>%
   # juveniles = individus de la classe "< 5 cm", comptes classe par classe
-  left_join(PC %>%
+  left_join(POISSONS_CLASSES %>%
               group_by(Programme, Station, Annee) %>%
               summarise(Effectifs_juveniles  = sum(Abondance[!is.na(Taille_moyenne_cm) & Taille_moyenne_cm < 5]),
                         Nb_especes_juveniles = n_distinct(Taxon[!is.na(Taille_moyenne_cm) & Taille_moyenne_cm < 5]),
@@ -1420,30 +1408,6 @@ calculer_indicateurs_poissons <- function(P, PC) {
   ) %>%
   select(Station, Date, Annee, Richesse_specifique, Densite_100m2,
          Biomasse_kg_ha, Nb_especes_juveniles, Pct_juveniles, Source)
-}
-
-# Deux versions (cf. ANNEES_POISSONS_LISTE_RESTREINTE dans R/00_parametres.R) :
-#  - inventaire complet (toutes les especes comptees) : graphiques ;
-#  - "a liste egale" (especes de la liste restreinte de 2022 seulement) :
-#    seule comparaison valable entre 2022 et une annee d'inventaire
-#    complet (evolution des chiffres cles).
-Poissons_indicateurs_modernes <- calculer_indicateurs_poissons(POISSONS, POISSONS_CLASSES)
-Poissons_indicateurs_liste <- calculer_indicateurs_poissons(
-  POISSONS %>% filter(dans_liste_restreinte(Taxon)),
-  POISSONS_CLASSES %>% filter(dans_liste_restreinte(Taxon)))
-
-# Controle : une annee "liste restreinte" ne devrait contenir aucune
-# espece hors liste (sinon ANNEES_POISSONS_LISTE_RESTREINTE est a revoir)
-Especes_hors_liste <- POISSONS %>%
-  filter(Abondance > 0, !dans_liste_restreinte(Taxon)) %>%
-  group_by(Station, Annee) %>%
-  summarise(Nb_especes_hors_liste = n_distinct(Taxon), Abondance = sum(Abondance), .groups = "drop")
-cat("\nEspeces hors liste restreinte (", NB_ESPECES_LISTE_RESTREINTE, " esp.) par annee :\n", sep = "")
-print(Especes_hors_liste)
-if (any(Especes_hors_liste$Annee %in% ANNEES_POISSONS_LISTE_RESTREINTE)) {
-  warning("Des especes hors liste restreinte sont saisies pour une annee de ANNEES_POISSONS_LISTE_RESTREINTE : ",
-          "verifier le parametre (R/00_parametres.R).", call. = FALSE)
-}
 
 # Equivalent moderne : composition (%) par groupe trophique, calculee
 # sur les 3 memes parametres a partir de l'extraction ReefDB (POISSONS,
@@ -2607,12 +2571,6 @@ Indicateurs_poissons <- c(
   Nb_especes_juveniles = "Especes avec juveniles (nb)"
 )
 
-# Rappel sous les graphiques d'evolution : annees comptees sur une liste
-# restreinte d'especes (richesse, densite, structure sous-estimees)
-note_liste_poissons <- if (length(ANNEES_POISSONS_LISTE_RESTREINTE) > 0)
-  paste0(paste(ANNEES_POISSONS_LISTE_RESTREINTE, collapse = ", "), " : comptage limite a une liste de ",
-         NB_ESPECES_LISTE_RESTREINTE, " especes (non comparable aux autres annees)") else NULL
-
 BDD_poissons_long <- BDD_evolution_poissons %>%
   select(Station, Date, Annee, Source, all_of(names(Indicateurs_poissons))) %>%
   pivot_longer(all_of(names(Indicateurs_poissons)), names_to = "Code", values_to = "Valeur") %>%
@@ -2630,8 +2588,7 @@ p <- ggplot(BDD_poissons_long, aes(x = Annee, y = Valeur, colour = Station, grou
                   min.segment.length = 0.3, seed = 1) +
   facet_wrap(~Indicateur, scales = "free_y", ncol = 2) +
   labs(title = "Evolution des indicateurs poissons",
-       subtitle = paste(c("Rond = extraction ReefDB (BELT) ; carre = rapport Eco Récif Environnement 2024 (Baleine uniquement)",
-                          note_liste_poissons), collapse = "\n"), y = NULL) +
+       subtitle = "Rond = extraction ReefDB (BELT) ; carre = rapport Eco Récif Environnement 2024 (Baleine uniquement)", y = NULL) +
   theme_fiche() + theme(legend.box = "vertical")
 sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", NULL, "evolution"), "Evolution_indicateurs_poissons", "panoramique", hauteur = 16)
 
@@ -2642,8 +2599,7 @@ for (code in names(Indicateurs_poissons)) {
   p <- graph_serie(df_ind, "Annee", "Valeur", "Station", palette = Palette_stations,
                    unite = "", decimales = 1, seuils = SEUILS_REFERENCE[[code]],
                    titre = Indicateurs_poissons[[code]],
-                   sous_titre = paste(c("Rond = extraction ReefDB (BELT) ; carre = rapport Eco Récif Environnement 2024",
-                                        note_liste_poissons), collapse = "\n"),
+                   sous_titre = "Rond = extraction ReefDB (BELT) ; carre = rapport Eco Récif Environnement 2024",
                    y_lab = Indicateurs_poissons[[code]])
   ajouter_tendance(p, code)
   sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", NULL, "evolution"), paste0("Evolution_", code), "standard")
@@ -2657,8 +2613,6 @@ for (station_value in unique(BDD_evolution_poissons$Station)) {
     p <- graph_barres_sd(df_station, "Annee", code, fill = "Source", palette = Couleurs_source,
                          labels_fill = Libelles_source, decimales = if (code == "Richesse_specifique") 0 else 1,
                          titre = str_wrap(paste(Indicateurs_poissons[[code]], "-", station_value), 50),
-                         sous_titre = if (any(df_station$Annee %in% ANNEES_POISSONS_LISTE_RESTREINTE))
-                           str_wrap(note_liste_poissons, 70) else NULL,
                          y_lab = Indicateurs_poissons[[code]])
     sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", station_value, "evolution"), paste0(code, "_", station_value), "large",
                  largeur = min(24, max(14, 1.4 * n_distinct(df_station$Annee) + 6)))
@@ -2681,8 +2635,7 @@ for (param in unique(Trophique_historique$Paramètre)) {
                       labels_fill = Libelles_trophique, decimales = 0,
                       titre = str_wrap(paste0("Structure trophique (", param, ") - ", station_value), 55),
                       sous_titre = if (any(df_param$Source == "Rapport_EcoRecif_2024"))
-                        paste(c("2018-2024 = rapport Eco Récif Environnement 2024 ; 2022/2026 = extraction ReefDB (BELT)",
-                                note_liste_poissons), collapse = "\n") else note_liste_poissons,
+                        "2018-2024 = rapport Eco Récif Environnement 2024 ; 2022/2026 = extraction ReefDB (BELT)" else NULL,
                       legende_nrow = 2)
     sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", station_value, "evolution"), paste0("Structure_trophique_", param, "_", station_value),
                  "standard")
@@ -3007,11 +2960,6 @@ Comparaisons_annees <- bind_rows(
 # --- Chiffres cles : derniere annee, evolution vs annee precedente,
 #     significativite et tendance long terme, avec un texte pret a coller
 #     dans Canva (ex. "12,4 % (▼ 3,1 depuis 2022 *)") ------------------------
-# Poissons : annee comptee sur la liste restreinte ou en inventaire complet
-protocole_poissons <- function(annee) {
-  ifelse(annee %in% ANNEES_POISSONS_LISTE_RESTREINTE, "liste restreinte", "inventaire complet")
-}
-
 resumer_indicateur <- function(df, valeur, compartiment, indicateur, unite, decimales = 1,
                                comparaisons = NULL, cle_tendance = NULL, protocole = NULL) {
   if (is.null(df) || nrow(df) == 0 || !valeur %in% names(df)) return(NULL)
@@ -3081,28 +3029,15 @@ Chiffres_cles <- bind_rows(
                      comparaisons = Comparaison_oursins, cle_tendance = "Oursins"),
   resumer_indicateur(Recouvrement_macroalgues_global, "Recouvrement_moyen", "Benthos",
                      "Recouvrement macroalgues (quadrats)", "%", 1, comparaisons = Comparaison_macroalgues),
-  # inventaire complet : pas d'evolution calculee depuis une annee comptee
-  # sur la liste restreinte (cf. ANNEES_POISSONS_LISTE_RESTREINTE)
   resumer_indicateur(Poissons_indicateurs_modernes, "Densite_100m2", "Poissons", "Densite de poissons", "ind./100 m²", 1,
-                     cle_tendance = "Densite_100m2", protocole = protocole_poissons),
+                     cle_tendance = "Densite_100m2"),
   resumer_indicateur(Poissons_indicateurs_modernes, "Biomasse_kg_ha", "Poissons", "Biomasse de poissons", "kg/ha", 1,
-                     cle_tendance = "Biomasse_kg_ha", protocole = protocole_poissons),
+                     cle_tendance = "Biomasse_kg_ha"),
   resumer_indicateur(Poissons_indicateurs_modernes, "Richesse_specifique", "Poissons", "Richesse specifique poissons", "especes", 0,
-                     cle_tendance = "Richesse_specifique", protocole = protocole_poissons),
-  resumer_indicateur(Poissons_indicateurs_modernes, "Pct_juveniles", "Poissons", "Part de juveniles", "%", 1,
-                     protocole = protocole_poissons),
-  # "a liste egale" : seules les especes de la liste restreinte, pour
-  # comparer malgre tout la derniere annee a une annee de liste restreinte
-  resumer_indicateur(Poissons_indicateurs_liste, "Densite_100m2", "Poissons",
-                     paste0("Densite de poissons (a liste egale, ", NB_ESPECES_LISTE_RESTREINTE, " esp.)"), "ind./100 m²", 1),
-  resumer_indicateur(Poissons_indicateurs_liste, "Biomasse_kg_ha", "Poissons",
-                     paste0("Biomasse de poissons (a liste egale, ", NB_ESPECES_LISTE_RESTREINTE, " esp.)"), "kg/ha", 1),
-  resumer_indicateur(Poissons_indicateurs_liste, "Richesse_specifique", "Poissons",
-                     paste0("Richesse specifique poissons (a liste egale, ", NB_ESPECES_LISTE_RESTREINTE, " esp.)"), "especes", 0),
-  resumer_indicateur(Description_POISSONS_Station, "MTL", "Poissons", "Niveau trophique moyen (MTL)", "", 2,
-                     protocole = protocole_poissons),
-  resumer_indicateur(Description_POISSONS_Station, "Shannon_div_index", "Poissons", "Diversite de Shannon (H')", "", 2,
-                     protocole = protocole_poissons)
+                     cle_tendance = "Richesse_specifique"),
+  resumer_indicateur(Poissons_indicateurs_modernes, "Pct_juveniles", "Poissons", "Part de juveniles", "%", 1),
+  resumer_indicateur(Description_POISSONS_Station, "MTL", "Poissons", "Niveau trophique moyen (MTL)", "", 2),
+  resumer_indicateur(Description_POISSONS_Station, "Shannon_div_index", "Poissons", "Diversite de Shannon (H')", "", 2)
 ) %>%
   mutate(Valeur = round(Valeur, 3), Valeur_precedente = round(Valeur_precedente, 3), Evolution = round(Evolution, 3))
 
