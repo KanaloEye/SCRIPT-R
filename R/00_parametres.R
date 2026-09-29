@@ -119,6 +119,16 @@ CATEGORIES_ALGUES_RATIO <- c("Macroalgues molles", "Turf algal", "Macroalgues ca
 # protocoles - a harmoniser avec le rapport Eco Récif Environnement pour comparer.
 TAILLE_CLASSE_PLUS_40_CM <- 40
 
+# Poissons : annees comptees sur une LISTE RESTREINTE d'especes (2022 :
+# les 61 especes des N premieres lignes de Liste_147_Poissons.xlsx, feuille
+# "Liste_61_Poissons_BOUCHON"). Les autres annees (rapport Eco Récif
+# Environnement 2018-2024, 2026) sont des inventaires complets. Richesse,
+# densite et structure trophique de ces annees sont sous-estimees : elles
+# sont signalees sur les graphiques d'evolution, et l'evolution des
+# chiffres cles est aussi calculee "a liste egale" (especes de la liste).
+ANNEES_POISSONS_LISTE_RESTREINTE <- c(2022)
+NB_ESPECES_LISTE_RESTREINTE      <- 61
+
 # Poissons : correspondance nom ReefDB -> nom du referentiel
 # Liste_147_Poissons.xlsx (fautes d'orthographe du referentiel ou
 # synonymes). Mieux : corriger directement le referentiel, puis retirer
