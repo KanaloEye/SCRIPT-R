@@ -38,7 +38,7 @@ FEUILLE_BELT_CORAIL <- "FICHE DE SAISIE BELT CORAIL"
 #                             BALEINE/2_Evolution/
 #                             COCO/...
 #                             COMPARAISON_STATIONS/1_Annee_en_cours | 2_Evolution
-#   R_PLOT/1_BENTHOS/2_MACROALGUES/...   3_OURSINS/...   4_RECRUES/...   5_BELT_CORAUX/...
+#   R_PLOT/1_BENTHOS/2_MACROALGUES/...   3_OURSINS/...   4_RECRUES/...   5_BELT_CORAUX/...   6_GORGONES/...
 #   R_PLOT/2_POISSONS/1_BELT_POISSONS/<site>/...   2_ANALYSES_MULTIVARIEES/
 # Chaque graphique est enregistre UNE SEULE FOIS.
 DOSSIER_GRAPHS      <- "R_PLOT"
@@ -48,7 +48,7 @@ DOSSIER_BANCARISATION <- "Historique de bancarisation"
 # Themes et protocoles, dans l'ordre de l'arborescence (le rang donne le
 # numero du dossier : 1_LIT, 2_MACROALGUES...). Modifier l'ordre ici suffit.
 ARBORESCENCE <- list(
-  BENTHOS  = c("LIT", "MACROALGUES", "OURSINS", "RECRUES", "BELT_CORAUX"),
+  BENTHOS  = c("LIT", "MACROALGUES", "OURSINS", "RECRUES", "BELT_CORAUX", "GORGONES"),
   POISSONS = c("BELT_POISSONS", "ANALYSES_MULTIVARIEES")
 )
 NOM_DOSSIER_COMPARAISON <- "COMPARAISON_STATIONS"

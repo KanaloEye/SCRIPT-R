@@ -44,14 +44,15 @@ R_PLOT/
 │  ├─ 2_MACROALGUES/   (meme structure)
 │  ├─ 3_OURSINS/
 │  ├─ 4_RECRUES/
-│  └─ 5_BELT_CORAUX/
+│  ├─ 5_BELT_CORAUX/
+│  └─ 6_GORGONES/      (comptage dedie des colonies, meme structure)
 ├─ 2_POISSONS/
 │  ├─ 1_BELT_POISSONS/  (meme structure)
 │  └─ 2_ANALYSES_MULTIVARIEES/
 └─ CHIFFRES_CLES_FICHES.xlsx
 ```
 
-`3_Donnees_historiques/` contient des graphiques supplémentaires complétés par les données 2002-2018 : composition du recouvrement, genres coralliens, compartiments et gorgones. Ceux de `2_Evolution/` sont inchangés.
+`3_Donnees_historiques/` contient des graphiques supplémentaires complétés par les données 2002-2018 : composition du recouvrement, genres coralliens et compartiments (dans `1_LIT/`), gorgones 2002-2026 (dans `6_GORGONES/`). Ceux de `2_Evolution/` sont inchangés.
 
 Chaque graphique n'est enregistré qu'une fois. L'ordre des protocoles se règle avec `ARBORESCENCE` dans `R/00_parametres.R`.
 Au lancement, l'ancien `R_PLOT` est archivé dans `R_PLOT_ANCIEN`.

@@ -2425,7 +2425,7 @@ if (!is.null(Gorgones_suivi) && nrow(Gorgones_suivi) > 0) {
   p <- graph_barres_sd(Gorgones_suivi, "Annee", "Nb_gorgones_60m", fill = "Station", palette = Palette_stations,
                        decimales = 0, titre = "Nombre de gorgones", sous_titre = sous_titre_gorgones,
                        y_lab = "Gorgones / 60 m")
-  sauver_graph(p, dossier_graph("BENTHOS", "LIT", NULL, "evolution"), "Comparaison_Gorgones", "standard")
+  sauver_graph(p, dossier_graph("BENTHOS", "GORGONES", NULL, "evolution"), "Comparaison_Gorgones", "standard")
 
   for (station_value in unique(Gorgones_suivi$Station)) {
     p <- graph_barres_sd(Gorgones_suivi %>% filter(Station == station_value), "Annee", "Nb_gorgones_60m",
@@ -2433,7 +2433,7 @@ if (!is.null(Gorgones_suivi) && nrow(Gorgones_suivi) > 0) {
                          comparaisons = Comparaison_gorgones %>% filter(Station == station_value),
                          titre = str_wrap(paste("Nombre de gorgones -", station_value), 45),
                          sous_titre = sous_titre_gorgones, y_lab = "Gorgones / 60 m")
-    sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "evolution"), paste("Gorgones", station_value), "standard")
+    sauver_graph(p, dossier_graph("BENTHOS", "GORGONES", station_value, "evolution"), paste("Gorgones", station_value), "standard")
   }
 }
 
@@ -2834,7 +2834,7 @@ if (nrow(Gorgones_longue) > 0) {
                          labels_fill = Libelles_source, decimales = 0,
                          titre = str_wrap(paste("Nombre de gorgones (comptage dedie) -", station_value), 50),
                          sous_titre = str_wrap(note_gorgones, 95), y_lab = "Gorgones / 60 m")
-    sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "historique"),
+    sauver_graph(p, dossier_graph("BENTHOS", "GORGONES", station_value, "historique"),
                  paste("Gorgones_2002-2026", station_value), "panoramique")
   }
   # les deux stations + tendance (chaque campagne = un point)
@@ -2843,7 +2843,7 @@ if (nrow(Gorgones_longue) > 0) {
                    titre = "Nombre de gorgones (comptage dedie, nb / 60 m)",
                    sous_titre = str_wrap(note_gorgones, 95), y_lab = "Gorgones / 60 m", decimales = 0)
   ajouter_tendance(p, "Gorgones")
-  sauver_graph(p, dossier_graph("BENTHOS", "LIT", NULL, "historique"), "Gorgones_2002-2026_stations", "panoramique")
+  sauver_graph(p, dossier_graph("BENTHOS", "GORGONES", NULL, "historique"), "Gorgones_2002-2026_stations", "panoramique")
 }
 ```
 
