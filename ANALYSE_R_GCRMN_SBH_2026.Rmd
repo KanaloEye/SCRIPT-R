@@ -276,6 +276,30 @@ Recouvrement_LIt_annee <- Recouvrement_LIt_replicat %>%
 cat("\nApercu - recouvrement moyen par nature (%) :\n")
 print(Recouvrement_LIt_annee)
 
+## 4.4 Nombre de gorgones interceptees (croisees) par le ruban
+# Une gorgone croisee = un segment "Gorgones" du LIT. Deux segments
+# Gorgones consecutifs sur un meme transect sont comptes comme UNE seule
+# gorgone (meme colonie decoupee par un point de transition). Les
+# transects sans gorgone comptent 0.
+Gorgones_replicat <- LIT_BENTHOS %>%
+  arrange(Station, Date, Annee, Replicat, Transition_m) %>%
+  group_by(Programme, Station, Date, Annee, Replicat) %>%
+  summarise(Nb_gorgones = sum(Categorie_detail == "Gorgones" &
+                                lag(Categorie_detail, default = "") != "Gorgones"),
+            .groups = "drop")
+
+Gorgones_annee <- Gorgones_replicat %>%
+  group_by(Programme, Station, Date, Annee) %>%
+  summarise(Nb_gorgones_total = sum(Nb_gorgones),
+            # ecart-type calcule AVANT la moyenne (meme nom de colonne evite)
+            Nb_gorgones_ET    = round(sd(Nb_gorgones), 2),
+            Nb_gorgones_moyen = round(mean(Nb_gorgones), 2),
+            n_replicats       = n(),
+            .groups = "drop")
+
+cat("\nApercu - gorgones interceptees (par transect de", LONGUEUR_TRANSECT_LIT_M, "m) :\n")
+print(Gorgones_annee)
+
 
 # --- 5. Detail des taxons coralliens (coraux durs uniquement) -----------
 Taxons_coralliens_replicat <- LIT_BENTHOS %>%
@@ -2205,6 +2229,26 @@ for (categorie in c("Coraux durs", "Macroalgues molles")) {
   sauver_graph(p, dossier_graph("BENTHOS", "LIT", NULL, "evolution"), paste0("Comparaison_", categorie), "standard")
 }
 
+## (d bis) Nombre de gorgones interceptees par le LIT (moyenne +/- ET par transect)
+if (nrow(Gorgones_annee) > 0) {
+  sous_titre_gorgones <- paste0("Moyenne +/- ecart-type par transect de ", LONGUEUR_TRANSECT_LIT_M,
+                                " m ; segments consecutifs = une seule gorgone")
+  p <- graph_barres_sd(Gorgones_annee, "Annee", "Nb_gorgones_moyen", sd = "Nb_gorgones_ET",
+                       fill = "Station", palette = Palette_stations,
+                       titre = "Nombre de gorgones interceptees (LIT)", sous_titre = sous_titre_gorgones,
+                       y_lab = "Gorgones / transect")
+  sauver_graph(p, dossier_graph("BENTHOS", "LIT", NULL, "evolution"), "Comparaison_Gorgones", "standard")
+
+  for (station_value in unique(Gorgones_annee$Station)) {
+    p <- graph_barres_sd(Gorgones_annee %>% filter(Station == station_value), "Annee", "Nb_gorgones_moyen",
+                         sd = "Nb_gorgones_ET", couleur = Palette_categorie_detail[["Gorgones"]],
+                         n_col = "n_replicats",
+                         titre = str_wrap(paste("Nombre de gorgones interceptees -", station_value), 45),
+                         sous_titre = sous_titre_gorgones, y_lab = "Gorgones / transect")
+    sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "evolution"), paste("Gorgones", station_value), "standard")
+  }
+}
+
 ## (e) Variabilite inter-replicats (controle qualite, pas pour les fiches)
 for (station_value in unique(Recouvrement_LIt_replicat$Station)) {
   station_filter <- Recouvrement_LIt_replicat %>%
@@ -3151,6 +3195,8 @@ addWorksheet(wb, "BENTHOS_LIT_ANNEE")
         addWorksheet(wb, "2.9 Recouvrement_macroalgues")
         writeData(wb, sheet = "2.9 Recouvrement_macroalgues", Recouvrement_macroalgues_taxon)
       }
+      addWorksheet(wb, "2.10 Gorgones_LIT")
+      writeData(wb, sheet = "2.10 Gorgones_LIT", Gorgones_annee)
       
 # Enregistrer le fichier dans le dossier spécifié
 addWorksheet(wb, "3.1 Tendances")
