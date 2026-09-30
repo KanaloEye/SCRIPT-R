@@ -1913,6 +1913,35 @@ if (file.exists(FICHIERS$ECORECIF_2024) &&
 Oursins_longue <- Oursins_longue %>% arrange(Station, Annee) %>%
   dedoublonner_sources("Densite_m2", libelle = "oursins/m2")
 
+# Gorgones : rapport Eco Récif Environnement (feuille Autres_indicateurs,
+# Baleine uniquement, "nb. individus / 60 m de transect") + gorgones
+# interceptees par le LIT (section 1.1), ramenees a 60 m de transect
+# (2 x 30 m). ATTENTION : methodes de comptage possiblement differentes
+# (le LIT ne compte que les gorgones qui croisent la ligne).
+Gorgones_longue <- Gorgones_annee %>%
+  mutate(Nb_gorgones_60m = round(Nb_gorgones_total * 60 / (n_replicats * LONGUEUR_TRANSECT_LIT_M), 1),
+         Source = "Extraction_ReefDB_LIT") %>%
+  select(Station, Date, Annee, Nb_gorgones_60m, Source)
+
+if (file.exists(FICHIERS$ECORECIF_2024) &&
+    "Autres_indicateurs" %in% excel_sheets(FICHIERS$ECORECIF_2024)) {
+  Autres_ecorecif <- read_excel(FICHIERS$ECORECIF_2024, sheet = "Autres_indicateurs", skip = 3)
+  Gorgones_historique <- Autres_ecorecif %>%
+    filter(str_detect(Indicateur, regex("gorgone", ignore_case = TRUE))) %>%
+    slice(1) %>%
+    pivot_longer(-Indicateur, names_to = "Annee_brute", values_to = "Nb_gorgones_60m") %>%
+    mutate(Annee = suppressWarnings(as.numeric(Annee_brute)),
+           Nb_gorgones_60m = suppressWarnings(as.numeric(Nb_gorgones_60m)),
+           Station = STATION_RAPPORT_ECORECIF, Source = "Rapport_EcoRecif_2024") %>%
+    filter(!is.na(Annee), !is.na(Nb_gorgones_60m)) %>%
+    left_join(DATES_CAMPAGNES_ECORECIF, by = "Annee") %>%
+    select(Station, Date, Annee, Nb_gorgones_60m, Source)
+  Gorgones_longue <- bind_rows(Gorgones_historique, Gorgones_longue)
+}
+Gorgones_longue <- Gorgones_longue %>% arrange(Station, Annee)
+cat("\nApercu - gorgones (nb / 60 m de transect) :\n")
+print(Gorgones_longue)
+
 cat("\nApercu - Recrues_longue :\n"); print(Recrues_longue, n = Inf)
 cat("\nApercu - Oursins_longue :\n"); print(Oursins_longue, n = Inf)
 
@@ -2247,6 +2276,21 @@ if (nrow(Gorgones_annee) > 0) {
                          sous_titre = sous_titre_gorgones, y_lab = "Gorgones / transect")
     sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "evolution"), paste("Gorgones", station_value), "standard")
   }
+}
+
+## (d ter) Gorgones : serie historique (Eco Récif Environnement + LIT), nb / 60 m de transect
+for (station_value in unique(Gorgones_longue$Station)) {
+  df_station <- Gorgones_longue %>% filter(Station == station_value)
+  if (!any(df_station$Source == "Rapport_EcoRecif_2024")) next  # sinon = graphique (d bis)
+  p <- graph_barres_sd(df_station, "Annee", "Nb_gorgones_60m", fill = "Source", palette = Couleurs_source,
+                       labels_fill = Libelles_source, decimales = 0,
+                       titre = str_wrap(paste("Evolution du nombre de gorgones -", station_value), 45),
+                       sous_titre = str_wrap(paste0("Nb de gorgones pour 60 m de transect. 2018-2024 : rapport Eco Récif ",
+                                                    "Environnement ; 2022/2026 : gorgones interceptees par le LIT (2 x 30 m). ",
+                                                    "Methodes de comptage possiblement differentes."), 80),
+                       y_lab = "Gorgones / 60 m")
+  sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "evolution"), paste("Gorgones_historique", station_value),
+               "large", largeur = min(24, max(14, 1.4 * n_distinct(df_station$Annee) + 6)))
 }
 
 ## (e) Variabilite inter-replicats (controle qualite, pas pour les fiches)
@@ -3197,6 +3241,8 @@ addWorksheet(wb, "BENTHOS_LIT_ANNEE")
       }
       addWorksheet(wb, "2.10 Gorgones_LIT")
       writeData(wb, sheet = "2.10 Gorgones_LIT", Gorgones_annee)
+      addWorksheet(wb, "2.11 Gorgones_historique")
+      writeData(wb, sheet = "2.11 Gorgones_historique", Gorgones_longue)
       
 # Enregistrer le fichier dans le dossier spécifié
 addWorksheet(wb, "3.1 Tendances")
