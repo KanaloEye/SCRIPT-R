@@ -22,21 +22,30 @@ Formes_source <- c(
   "Extraction_ReefDB_Quadrat" = 16,
   "Extraction_ReefDB_BELT"    = 16,
   "Historique_ATE"            = 17,
-  "Rapport_EcoRecif_2024"      = 15
+  "Rapport_EcoRecif_2024"      = 15,
+  "Historique_IUCN"           = 18,
+  "Historique_Gorgones"       = 18,
+  "Suivi_Gorgones"            = 16
 )
 Libelles_source <- c(
   "Extraction_ReefDB_LIT"     = "Extraction ReefDB",
   "Extraction_ReefDB_Quadrat" = "Extraction ReefDB",
   "Extraction_ReefDB_BELT"    = "Extraction ReefDB",
   "Historique_ATE"            = "Historique ATE",
-  "Rapport_EcoRecif_2024"      = "Rapport Eco Récif Environnement 2024"
+  "Rapport_EcoRecif_2024"      = "Rapport Eco Récif Environnement 2024",
+  "Historique_IUCN"           = "Suivi LIT C. Bouchon 2002-2011",
+  "Historique_Gorgones"       = "Graphiques C. Bouchon 2002-2018",
+  "Suivi_Gorgones"            = "Fiche de saisie gorgones"
 )
 Couleurs_source <- c(
   "Extraction_ReefDB_LIT"     = "steelblue3",
   "Extraction_ReefDB_Quadrat" = "steelblue3",
   "Extraction_ReefDB_BELT"    = "steelblue3",
   "Historique_ATE"            = "grey60",
-  "Rapport_EcoRecif_2024"      = "darkorange2"
+  "Rapport_EcoRecif_2024"      = "darkorange2",
+  "Historique_IUCN"           = "grey45",
+  "Historique_Gorgones"       = "slateblue3",
+  "Suivi_Gorgones"            = "steelblue3"
 )
 
 # --- Benthos LIT -------------------------------------------------------------
@@ -61,6 +70,7 @@ Palette_categorie_detail <- c(
   "Cyanophycées" = 'gold3',
   "Eponges" = 'midnightblue',
   "Gorgones" = 'slateblue3',
+  "Autres invertébrés" = 'plum3',
   "Zoanthaires" = 'coral',
   "Herbiers" = 'darkseagreen1',
   "Roche" = 'azure4',
@@ -81,7 +91,7 @@ Palette_taxons_coralliens <- c(
   "Dendrogyra cylindrus" = 'yellow4',
   "Dichocoenia stokesii" = 'chartreuse',
   "Dichocoenia" = 'chartreuse',
-  "Diploria" = '#FF7F00',
+  "Diploria" = 'saddlebrown',
   "Diploria labyrinthiformis" = '#FF7F33',
   "Eusmilia fastigiata" = 'yellow3',
   "Favia fragum" = 'gray',
@@ -121,6 +131,12 @@ Palette_taxons_coralliens <- c(
   "Stephanocoenia" = 'tomato',
   "Stephanocoenia intersepta" = 'tomato4',
   "Stylaster roseus" = 'pink',
+  # genres (graphique historique 2002-2026, compose au rang du genre)
+  "Agaricia" = 'green3',
+  "Acropora" = 'lightpink',
+  "Colpophyllia" = 'blue1',
+  "Dendrogyra" = 'yellow4',
+  "Autres coraux" = 'grey75',
   "NA" = 'black'
 )
 

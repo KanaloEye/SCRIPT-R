@@ -13,6 +13,19 @@ R/03_fonctions_graphiques.R    thème et fonctions graphiques communes
 
 Le dossier `R/` doit rester à côté du `.Rmd`.
 
+Fichiers de données attendus (chemins dans `R/00_parametres.R`) :
+
+```
+Extractions BD Recif/   extractions ReefDB (LIT, recrues, oursins, macroalgues, poissons)
+BD Excel/Liste_147_Poissons.xlsx
+BD Excel/EXCEL/SUIVI_GCRMN_BELT_CORAIL_2026.xlsx
+BD Excel/EXCEL/SUIVI_GCRMN_GORGONES_2026.xlsx          gorgones 2022/2026 (6 sections de 10 m)
+BD Excel/Data_Bouchon/250975_ATE_GCRMN_EVOL_BENTHOS_C_BOUCHON.xlsx
+BD Excel/Data_Bouchon/Rapport_Bouchon_2024_donnees.xlsx
+BD Excel/Data_Bouchon/GCRMN_IUCN_StBarth_2002-2011.xlsx  suivi LIT 2002-2011 par espèce
+BD Excel/Data_Bouchon/Gorgones_historique_2002-2018.xlsx gorgones lues sur les graphiques C. Bouchon
+```
+
 ## Utilisation
 
 1. Placer les extractions ReefDB dans `Extractions BD Recif/` et les classeurs dans `BD Excel/`
@@ -25,8 +38,8 @@ Le dossier `R/` doit rester à côté du `.Rmd`.
 R_PLOT/
 ├─ 1_BENTHOS/
 │  ├─ 1_LIT/
-│  │  ├─ BALEINE/  1_Annee_en_cours/  2_Evolution/
-│  │  ├─ COCO/     1_Annee_en_cours/  2_Evolution/
+│  │  ├─ BALEINE/  1_Annee_en_cours/  2_Evolution/  3_Donnees_historiques/
+│  │  ├─ COCO/     1_Annee_en_cours/  2_Evolution/  3_Donnees_historiques/
 │  │  └─ COMPARAISON_STATIONS/  1_Annee_en_cours/  2_Evolution/
 │  ├─ 2_MACROALGUES/   (meme structure)
 │  ├─ 3_OURSINS/
@@ -37,6 +50,8 @@ R_PLOT/
 │  └─ 2_ANALYSES_MULTIVARIEES/
 └─ CHIFFRES_CLES_FICHES.xlsx
 ```
+
+`3_Donnees_historiques/` contient des graphiques supplémentaires complétés par les données 2002-2018 : composition du recouvrement, genres coralliens, compartiments et gorgones. Ceux de `2_Evolution/` sont inchangés.
 
 Chaque graphique n'est enregistré qu'une fois. L'ordre des protocoles se règle avec `ARBORESCENCE` dans `R/00_parametres.R`.
 Au lancement, l'ancien `R_PLOT` est archivé dans `R_PLOT_ANCIEN`.

@@ -276,30 +276,6 @@ Recouvrement_LIt_annee <- Recouvrement_LIt_replicat %>%
 cat("\nApercu - recouvrement moyen par nature (%) :\n")
 print(Recouvrement_LIt_annee)
 
-## 4.4 Nombre de gorgones interceptees (croisees) par le ruban
-# Une gorgone croisee = un segment "Gorgones" du LIT. Deux segments
-# Gorgones consecutifs sur un meme transect sont comptes comme UNE seule
-# gorgone (meme colonie decoupee par un point de transition). Les
-# transects sans gorgone comptent 0.
-Gorgones_replicat <- LIT_BENTHOS %>%
-  arrange(Station, Date, Annee, Replicat, Transition_m) %>%
-  group_by(Programme, Station, Date, Annee, Replicat) %>%
-  summarise(Nb_gorgones = sum(Categorie_detail == "Gorgones" &
-                                lag(Categorie_detail, default = "") != "Gorgones"),
-            .groups = "drop")
-
-Gorgones_annee <- Gorgones_replicat %>%
-  group_by(Programme, Station, Date, Annee) %>%
-  summarise(Nb_gorgones_total = sum(Nb_gorgones),
-            # ecart-type calcule AVANT la moyenne (meme nom de colonne evite)
-            Nb_gorgones_ET    = round(sd(Nb_gorgones), 2),
-            Nb_gorgones_moyen = round(mean(Nb_gorgones), 2),
-            n_replicats       = n(),
-            .groups = "drop")
-
-cat("\nApercu - gorgones interceptees (par transect de", LONGUEUR_TRANSECT_LIT_M, "m) :\n")
-print(Gorgones_annee)
-
 
 # --- 5. Detail des taxons coralliens (coraux durs uniquement) -----------
 Taxons_coralliens_replicat <- LIT_BENTHOS %>%
@@ -633,6 +609,46 @@ if (file.exists(FICHIER_BELT_CORAIL)) {
   warning("Fichier BELT CORAIL introuvable ('", FICHIER_BELT_CORAIL,
           "', ni aucun fichier *BELT*.xlsx dans 'BD Excel') - BELT CORAIL non integre.")
   cat("\n!!! BELT CORAIL : aucun fichier trouve -> aucun graphique BELT ne sera produit.\n")
+}
+```
+
+## 1.2bis GORGONES (comptage dedie)
+```{r}
+# Fiche de saisie SUIVI_GCRMN_GORGONES : nombre de gorgones par section de
+# 10 m (6 sections = 60 m par station et par annee), meme unite que les
+# donnees historiques (effectifs / 60 m de transect).
+# NB : la colonne "Transect" du fichier n'est pas fiable (T1, T2, T3, T4,
+# T1, T2 : recopie incrementee) - elle n'est pas utilisee. Le total est
+# ramene a 60 m si le nombre de sections differe de 6.
+Gorgones_sections    <- NULL
+Gorgones_suivi       <- NULL
+Comparaison_gorgones <- NULL
+if (file.exists(FICHIERS$GORGONES)) {
+  Gorgones_sections <- read_excel(FICHIERS$GORGONES, sheet = 1) %>%
+    rename_with(~ str_to_lower(iconv(.x, to = "ASCII//TRANSLIT"))) %>%
+    transmute(Station = harmoniser_station(station),
+              Annee   = as.numeric(annee),
+              Section = section,
+              Nb_gorgones = as.numeric(nb_gorgones)) %>%
+    filter(!is.na(Station), !is.na(Annee), !is.na(Nb_gorgones))
+
+  Gorgones_suivi <- Gorgones_sections %>%
+    group_by(Station, Annee) %>%
+    summarise(n_sections        = n(),
+              Nb_gorgones_60m   = round(sum(Nb_gorgones) * 60 / (10 * n()), 1),
+              Nb_moyen_10m      = round(mean(Nb_gorgones), 2),
+              Nb_ET_10m         = round(sd(Nb_gorgones), 2),
+              .groups = "drop") %>%
+    mutate(Date = as.Date(paste0(Annee, "-07-01")), Source = "Suivi_Gorgones")
+  if (any(Gorgones_suivi$n_sections != 6)) {
+    warning("Gorgones : nombre de sections de 10 m different de 6 pour certaines stations/annees - ",
+            "total ramene a 60 m.", call. = FALSE)
+  }
+  Comparaison_gorgones <- comparer_annees(Gorgones_sections, "Nb_gorgones")
+  cat("\nApercu - gorgones (comptage dedie, nb / 60 m) :\n")
+  print(Gorgones_suivi)
+} else {
+  warning("Fichier gorgones '", FICHIERS$GORGONES, "' introuvable - gorgones 2022/2026 non traitees.", call. = FALSE)
 }
 ```
 
@@ -1913,15 +1929,18 @@ if (file.exists(FICHIERS$ECORECIF_2024) &&
 Oursins_longue <- Oursins_longue %>% arrange(Station, Annee) %>%
   dedoublonner_sources("Densite_m2", libelle = "oursins/m2")
 
-# Gorgones : rapport Eco Récif Environnement (feuille Autres_indicateurs,
-# Baleine uniquement, "nb. individus / 60 m de transect") + gorgones
-# interceptees par le LIT (section 1.1), ramenees a 60 m de transect
-# (2 x 30 m). ATTENTION : methodes de comptage possiblement differentes
-# (le LIT ne compte que les gorgones qui croisent la ligne).
-Gorgones_longue <- Gorgones_annee %>%
-  mutate(Nb_gorgones_60m = round(Nb_gorgones_total * 60 / (n_replicats * LONGUEUR_TRANSECT_LIT_M), 1),
-         Source = "Extraction_ReefDB_LIT") %>%
-  select(Station, Date, Annee, Nb_gorgones_60m, Source)
+# Gorgones : serie du COMPTAGE DEDIE des colonies (effectifs / 60 m), une
+# seule methode de 2002 a 2026 :
+#  - 2002-2018 : graphiques C. Bouchon (valeurs lues sur les barres, +/- 1 ;
+#    fichier FICHIERS$GORGONES_HISTORIQUE) ;
+#  - 2018-2024 : rapport Eco Récif Environnement (Baleine, feuille
+#    Autres_indicateurs) ; 2018 Baleine present dans les deux sources
+#    (meme valeur) -> valeur du rapport gardee ;
+#  - 2022/2026 : fiche de saisie gorgones (section 1.2bis).
+Gorgones_longue <- if (!is.null(Gorgones_suivi))
+  Gorgones_suivi %>% select(Station, Date, Annee, Nb_gorgones_60m, Source) else
+  tibble(Station = character(), Date = as.Date(character()), Annee = numeric(),
+         Nb_gorgones_60m = numeric(), Source = character())
 
 if (file.exists(FICHIERS$ECORECIF_2024) &&
     "Autres_indicateurs" %in% excel_sheets(FICHIERS$ECORECIF_2024)) {
@@ -1938,9 +1957,149 @@ if (file.exists(FICHIERS$ECORECIF_2024) &&
     select(Station, Date, Annee, Nb_gorgones_60m, Source)
   Gorgones_longue <- bind_rows(Gorgones_historique, Gorgones_longue)
 }
-Gorgones_longue <- Gorgones_longue %>% arrange(Station, Annee)
-cat("\nApercu - gorgones (nb / 60 m de transect) :\n")
-print(Gorgones_longue)
+if (file.exists(FICHIERS$GORGONES_HISTORIQUE)) {
+  Gorgones_graphiques <- read_excel(FICHIERS$GORGONES_HISTORIQUE, sheet = "Gorgones_60m") %>%
+    mutate(Station = harmoniser_station(Station), Date = as.Date(Date),
+           Annee = as.numeric(Annee), Nb_gorgones_60m = as.numeric(Nb_gorgones_60m),
+           Source = "Historique_Gorgones") %>%
+    filter(!is.na(Nb_gorgones_60m)) %>%
+    anti_join(Gorgones_longue, by = c("Station", "Annee")) %>%
+    select(Station, Date, Annee, Nb_gorgones_60m, Source)
+  Gorgones_longue <- bind_rows(Gorgones_graphiques, Gorgones_longue)
+} else {
+  warning("Fichier '", FICHIERS$GORGONES_HISTORIQUE, "' introuvable - gorgones 2002-2018 non integrees.",
+          call. = FALSE)
+}
+Gorgones_longue <- Gorgones_longue %>% arrange(Station, Date)
+cat("\nApercu - gorgones, comptage dedie (nb / 60 m de transect) :\n")
+print(Gorgones_longue, n = Inf)
+
+
+# --- Donnees historiques complementaires (graphiques 3_Donnees_historiques) --
+# Elles ne modifient AUCUNE des tables ci-dessus : les graphiques de
+# 2_Evolution restent identiques ; ces tables alimentent des graphiques
+# supplementaires (dossier 3_Donnees_historiques de chaque station).
+
+## (1) Suivi LIT C. Bouchon 2002-2011 (format IUCN)
+# Une ligne = une campagne (2 par an jusqu'en 2006), % de recouvrement par
+# espece de corail / d'algue et par grand groupe (somme = 100 %). Pas de
+# categorie abiotique (roche, sable) : le substrat nu est vraisemblablement
+# compte dans le turf. Transect de 60 m (contre 2 x 30 m aujourd'hui).
+# NB : le % de corail et de macroalgues de ce fichier est deja present dans
+# la serie ATE (memes campagnes) ; l'apport est le DETAIL des categories et
+# des especes.
+Composition_IUCN <- NULL
+Taxons_IUCN      <- NULL
+if (file.exists(FICHIERS$HISTORIQUE_IUCN)) {
+  IUCN_brut <- read_excel(FICHIERS$HISTORIQUE_IUCN) %>%
+    mutate(Station = harmoniser_station(ReefSite), Annee = as.numeric(StartYear)) %>%
+    group_by(Station, Annee) %>% mutate(Campagne = row_number()) %>% ungroup()
+
+  # Grandes categories -> categories detaillees du script (memes couleurs)
+  categories_IUCN <- c(
+    "TotalCoral"             = "Coraux durs",   # scleractiniaires + Millepora, comme le LIT actuel
+    "PHEOPHYTA"              = "Macroalgues molles",
+    "RHODOPHYTA"             = "Macroalgues molles",
+    "CHLOROPHYTA"            = "Macroalgues molles",
+    "CALCAREOUS CHLOROPHYTA" = "Macroalgues calcaires",  # Halimeda
+    "CORALLINE ALGAE"        = "Algues calcaires encroutantes",
+    "TURF"                   = "Turf algal",
+    "CYANOPHYTA"             = "Cyanophycées",
+    "SPONGES"                = "Eponges",
+    "OTHER INVERTEBRATES"    = "Autres invertébrés",
+    "SEA GRASS"              = "Herbiers"
+  )
+  Composition_IUCN <- IUCN_brut %>%
+    select(Station, Annee, Campagne, all_of(names(categories_IUCN))) %>%
+    pivot_longer(all_of(names(categories_IUCN)), names_to = "Colonne", values_to = "Pourcentage") %>%
+    mutate(Categorie_detail = unname(categories_IUCN[Colonne])) %>%
+    group_by(Station, Annee, Campagne, Categorie_detail) %>%
+    summarise(Pourcentage = sum(Pourcentage, na.rm = TRUE), .groups = "drop") %>%
+    # moyenne des campagnes de l'annee (ET entre campagnes)
+    group_by(Station, Annee, Categorie_detail) %>%
+    summarise(Pourcentage_ET    = if (n() > 1) round(sd(Pourcentage), 2) else NA_real_,
+              Pourcentage_moyen = round(mean(Pourcentage), 2),
+              n_replicats       = n(), .groups = "drop") %>%
+    filter(Pourcentage_moyen > 0) %>%
+    mutate(Date = as.Date(paste0(Annee, "-07-01")), Source = "Historique_IUCN")
+
+  # Especes de corail -> GENRE (les noms de 2002-2011 sont anciens :
+  # Montastrea annularis/faveolata/franksi = Orbicella, Diploria strigosa =
+  # Pseudodiploria, Leptoseris cuculata = Helioseris...). Le rang du genre
+  # rend 2002-2011 comparable au LIT ReefDB, saisi souvent au genre.
+  genre_corail <- function(taxon) {
+    t <- str_squish(taxon)
+    case_when(
+      str_detect(t, "^Montastr(a)?ea (annularis|faveolata|franksi)") ~ "Orbicella",
+      str_detect(t, "^Montastr(a)?ea cavernosa")                     ~ "Montastraea",
+      str_detect(t, "^Diploria strigosa|^Diploria clivosa")          ~ "Pseudodiploria",
+      str_detect(t, "^Leptoseris cuc")                                ~ "Helioseris",
+      str_detect(t, "^Isophyllastrea")                                ~ "Isophyllia",
+      str_detect(t, "^Mycetoph")                                      ~ "Mycetophyllia",
+      TRUE ~ word(t, 1)
+    )
+  }
+  colonnes_coraux <- names(IUCN_brut)[(which(names(IUCN_brut) == "TotalCoral") + 1):
+                                        (which(names(IUCN_brut) == "Stylaster roseus"))]
+  Taxons_IUCN <- IUCN_brut %>%
+    select(Station, Annee, Campagne, all_of(colonnes_coraux)) %>%
+    pivot_longer(all_of(colonnes_coraux), names_to = "Espece", values_to = "Pourcentage") %>%
+    mutate(Taxon = genre_corail(Espece)) %>%
+    group_by(Station, Annee, Campagne, Taxon) %>%
+    summarise(Pourcentage = sum(Pourcentage, na.rm = TRUE), .groups = "drop") %>%
+    group_by(Station, Annee, Taxon) %>%
+    summarise(Pourcentage_moyen = mean(Pourcentage), .groups = "drop") %>%
+    mutate(Source = "Historique_IUCN")
+
+  # Controle : le % de corail doit etre celui de la serie ATE (memes campagnes)
+  if (exists("Historique")) {
+    ecarts_iucn_ate <- Composition_IUCN %>%
+      filter(Categorie_detail == "Coraux durs") %>%
+      inner_join(Historique %>% group_by(Station, Annee) %>%
+                   summarise(Corail_ATE = mean(Recouvrement_corallien_pct, na.rm = TRUE), .groups = "drop"),
+                 by = c("Station", "Annee")) %>%
+      filter(abs(Pourcentage_moyen - Corail_ATE) > 0.5)
+    if (nrow(ecarts_iucn_ate) > 0) {
+      cat("\nATTENTION - % de corail different entre le fichier IUCN 2002-2011 et la serie ATE (moyenne annuelle) :\n")
+      print(ecarts_iucn_ate %>% select(Station, Annee, Corail_IUCN = Pourcentage_moyen, Corail_ATE))
+    }
+  }
+} else {
+  warning("Fichier '", FICHIERS$HISTORIQUE_IUCN, "' introuvable - graphiques 3_Donnees_historiques (benthos) non produits.",
+          call. = FALSE)
+}
+
+# Composition detaillee 2002-2026 : IUCN + Eco Récif Environnement + ReefDB
+Composition_historique_complete <- bind_rows(
+  Composition_IUCN,
+  Recouvrement_detail_historique %>% select(any_of(names(Composition_IUCN)))
+) %>% arrange(Station, Annee)
+
+# Composition corallienne relative (% du corail total), au GENRE :
+# IUCN 2002-2011 + LIT ReefDB 2022/2026. Le recrutement Eco Récif
+# Environnement (juveniles) n'est pas melange ici : ce n'est pas du
+# recouvrement adulte.
+Taxons_genre_historique <- bind_rows(
+  Taxons_IUCN,
+  Taxons_coralliens_annee %>%
+    mutate(Taxon = word(str_squish(Taxon), 1)) %>%
+    group_by(Station, Annee, Taxon) %>%
+    summarise(Pourcentage_moyen = sum(Pourcentage_moyen), .groups = "drop") %>%
+    mutate(Source = "Extraction_ReefDB_LIT")
+) %>%
+  group_by(Station, Annee) %>%
+  mutate(Pourcentage_moyen = round(100 * Pourcentage_moyen / sum(Pourcentage_moyen), 2)) %>%
+  ungroup() %>%
+  filter(Pourcentage_moyen > 0)
+# genres minoritaires (jamais plus de 3 % du corail) regroupes
+genres_majeurs <- Taxons_genre_historique %>%
+  group_by(Taxon) %>% summarise(max_pct = max(Pourcentage_moyen), .groups = "drop") %>%
+  filter(max_pct >= 3) %>% pull(Taxon)
+Taxons_genre_historique <- Taxons_genre_historique %>%
+  mutate(Taxon = ifelse(Taxon %in% genres_majeurs, Taxon, "Autres coraux")) %>%
+  group_by(Station, Annee, Taxon, Source) %>%
+  summarise(Pourcentage_moyen = sum(Pourcentage_moyen), .groups = "drop") %>%
+  mutate(Taxon = factor(Taxon, levels = c(sort(setdiff(unique(Taxon), "Autres coraux")), "Autres coraux")))
 
 cat("\nApercu - Recrues_longue :\n"); print(Recrues_longue, n = Inf)
 cat("\nApercu - Oursins_longue :\n"); print(Oursins_longue, n = Inf)
@@ -2258,54 +2417,24 @@ for (categorie in c("Coraux durs", "Macroalgues molles")) {
   sauver_graph(p, dossier_graph("BENTHOS", "LIT", NULL, "evolution"), paste0("Comparaison_", categorie), "standard")
 }
 
-## (d bis) Nombre de gorgones interceptees par le LIT (moyenne +/- ET par transect)
-if (nrow(Gorgones_annee) > 0) {
-  sous_titre_gorgones <- paste0("Moyenne +/- ecart-type par transect de ", LONGUEUR_TRANSECT_LIT_M,
-                                " m ; segments consecutifs = une seule gorgone")
-  p <- graph_barres_sd(Gorgones_annee, "Annee", "Nb_gorgones_moyen", sd = "Nb_gorgones_ET",
-                       fill = "Station", palette = Palette_stations,
-                       titre = "Nombre de gorgones interceptees (LIT)", sous_titre = sous_titre_gorgones,
-                       y_lab = "Gorgones / transect")
+## (d bis) Gorgones : comptage dedie 2022/2026 (fiche de saisie, nb / 60 m)
+# Etoiles : test de Wilcoxon sur les 6 sections de 10 m, annee vs annee
+# de suivi precedente (cf. Comparaison_gorgones).
+if (!is.null(Gorgones_suivi) && nrow(Gorgones_suivi) > 0) {
+  sous_titre_gorgones <- "Comptage dedie des colonies : 6 sections de 10 m (60 m de transect)"
+  p <- graph_barres_sd(Gorgones_suivi, "Annee", "Nb_gorgones_60m", fill = "Station", palette = Palette_stations,
+                       decimales = 0, titre = "Nombre de gorgones", sous_titre = sous_titre_gorgones,
+                       y_lab = "Gorgones / 60 m")
   sauver_graph(p, dossier_graph("BENTHOS", "LIT", NULL, "evolution"), "Comparaison_Gorgones", "standard")
 
-  for (station_value in unique(Gorgones_annee$Station)) {
-    p <- graph_barres_sd(Gorgones_annee %>% filter(Station == station_value), "Annee", "Nb_gorgones_moyen",
-                         sd = "Nb_gorgones_ET", couleur = Palette_categorie_detail[["Gorgones"]],
-                         n_col = "n_replicats",
-                         titre = str_wrap(paste("Nombre de gorgones interceptees -", station_value), 45),
-                         sous_titre = sous_titre_gorgones, y_lab = "Gorgones / transect")
+  for (station_value in unique(Gorgones_suivi$Station)) {
+    p <- graph_barres_sd(Gorgones_suivi %>% filter(Station == station_value), "Annee", "Nb_gorgones_60m",
+                         couleur = Palette_categorie_detail[["Gorgones"]], decimales = 0,
+                         comparaisons = Comparaison_gorgones %>% filter(Station == station_value),
+                         titre = str_wrap(paste("Nombre de gorgones -", station_value), 45),
+                         sous_titre = sous_titre_gorgones, y_lab = "Gorgones / 60 m")
     sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "evolution"), paste("Gorgones", station_value), "standard")
   }
-}
-
-## (d ter) Gorgones : historique Eco Récif Environnement ET LIT, en deux panneaux
-# Les deux methodes ne sont PAS comparables : comptage dedie des colonies
-# le long du transect (rapport, 2018-2024) contre gorgones interceptees par
-# la ligne du LIT (2022/2026, ~3 a 4 fois moins). Chaque methode a son
-# panneau (echelle commune) : la comparaison se fait a l'interieur d'un
-# panneau, jamais d'un panneau a l'autre.
-methodes_gorgones <- c(
-  "Rapport_EcoRecif_2024" = "Comptage dedie des colonies\n(rapport Eco Récif Environnement)",
-  "Extraction_ReefDB_LIT" = "Gorgones interceptees par le LIT\n(2 x 30 m)"
-)
-for (station_value in unique(Gorgones_longue$Station)) {
-  df_station <- Gorgones_longue %>%
-    filter(Station == station_value) %>%
-    mutate(Methode = factor(methodes_gorgones[Source], levels = methodes_gorgones))
-  if (!any(df_station$Source == "Rapport_EcoRecif_2024")) next  # sinon = graphique (d bis)
-  p <- ggplot(df_station, aes(x = factor(Annee), y = Nb_gorgones_60m, fill = Source)) +
-    geom_col(width = 0.65) +
-    geom_text(aes(label = formater_nombre(Nb_gorgones_60m, 0)), vjust = -0.5, size = 3, fontface = "bold") +
-    facet_grid(~Methode, scales = "free_x", space = "free_x") +
-    scale_fill_manual(values = Couleurs_source, guide = "none") +
-    scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.15))) +
-    labs(title = str_wrap(paste("Nombre de gorgones -", station_value), 45),
-         subtitle = "Nb de gorgones pour 60 m de transect ; methodes differentes : ne pas comparer les deux panneaux",
-         x = NULL, y = "Gorgones / 60 m") +
-    theme_fiche() +
-    theme(strip.text = element_text(face = "bold", size = rel(0.85)))
-  sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "evolution"), paste("Gorgones_historique", station_value),
-               "large", largeur = 18)
 }
 
 ## (e) Variabilite inter-replicats (controle qualite, pas pour les fiches)
@@ -2633,6 +2762,88 @@ for (station_value in unique(RECRUES$Station)) {
     theme_fiche() + theme(axis.title.x = element_text(face = "bold"))
   sauver_graph(p, dossier_graph("BENTHOS", "RECRUES", station_value, "annee"),
                paste0("Distribution_recrues_", annee_courante_recrues, "_", station_value), "standard")
+}
+```
+
+#### 2.1.2.7 Donnees historiques 2002-2018 (graphiques supplementaires)
+```{r}
+# Graphiques completes par le suivi LIT C. Bouchon 2002-2011 (IUCN) et les
+# comptages de gorgones 2002-2018. Ranges dans le dossier
+# 3_Donnees_historiques de chaque station : ceux de 2_Evolution sont inchanges.
+note_iucn <- "2002-2011 : suivi LIT C. Bouchon (60 m ; substrat nu inclus dans le turf, pas de categorie abiotique)"
+
+## (a) Composition detaillee du recouvrement 2002-2026
+for (station_value in unique(Composition_historique_complete$Station)) {
+  df_station <- Composition_historique_complete %>% filter(Station == station_value)
+  if (!any(df_station$Source == "Historique_IUCN")) next
+  sources_presentes <- c(
+    note_iucn,
+    if (any(df_station$Source == "Rapport_EcoRecif_2024")) "2018-2024 : rapport Eco Récif Environnement",
+    "2022/2026 : LIT ReefDB (2 x 30 m)")
+  p <- graph_empile(df_station, "Annee", "Pourcentage_moyen", "Categorie_detail", Palette_categorie_detail,
+                    titre = str_wrap(paste("Composition detaillee du recouvrement 2002-2026 -", station_value), 60),
+                    sous_titre = paste(sources_presentes, collapse = "\n"),
+                    y_lab = "Recouvrement moyen (%)", legende_nrow = 3, decimales = 0, taille_etiquette = 2.2)
+  sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "historique"),
+               paste("Composition_detaillee_2002-2026", station_value), "panoramique", hauteur = 14)
+}
+
+## (b) Composition corallienne par genre (% du corail total) 2002-2026
+for (station_value in unique(Taxons_genre_historique$Station)) {
+  df_station <- Taxons_genre_historique %>% filter(Station == station_value)
+  if (!any(df_station$Source == "Historique_IUCN")) next
+  p <- graph_empile(df_station, "Annee", "Pourcentage_moyen", "Taxon", Palette_taxons_coralliens,
+                    titre = str_wrap(paste("Composition corallienne par genre 2002-2026 -", station_value), 60),
+                    sous_titre = paste0("Part de chaque genre dans le corail total (Millepora inclus) ; ",
+                                        "genres < 3 % regroupes\n2002-2011 : suivi LIT C. Bouchon ; 2022/2026 : LIT ReefDB"),
+                    y_lab = "Composition (%)", legende_nrow = 2, legende_italique = TRUE,
+                    decimales = 0, taille_etiquette = 2.2)
+  sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "historique"),
+               paste("Taxons_coralliens_genre_2002-2026", station_value), "panoramique", hauteur = 14)
+}
+
+## (c) Series des principaux compartiments 2002-2026 (une facette par categorie)
+categories_series <- c("Coraux durs", "Macroalgues molles", "Turf algal",
+                       "Algues calcaires encroutantes", "Eponges", "Cyanophycées")
+for (station_value in unique(Composition_historique_complete$Station)) {
+  df_station <- Composition_historique_complete %>%
+    filter(Station == station_value, Categorie_detail %in% categories_series) %>%
+    mutate(Categorie_detail = factor(Categorie_detail, levels = categories_series))
+  if (!any(df_station$Source == "Historique_IUCN")) next
+  p <- ggplot(df_station, aes(x = Annee, y = Pourcentage_moyen, colour = Categorie_detail)) +
+    geom_line(linewidth = 0.6, alpha = 0.5) +
+    geom_point(aes(shape = Source), size = 2.3) +
+    scale_colour_manual(values = Palette_categorie_detail, guide = "none") +
+    scale_shape_source() +
+    facet_wrap(~Categorie_detail, scales = "free_y", ncol = 3) +
+    scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.1))) +
+    labs(title = str_wrap(paste("Evolution des principaux compartiments benthiques -", station_value), 60),
+         subtitle = note_iucn, x = NULL, y = "Recouvrement moyen (%)") +
+    theme_fiche() + theme(legend.box = "vertical")
+  sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "historique"),
+               paste("Series_compartiments_2002-2026", station_value), "panoramique", hauteur = 14)
+}
+
+## (d) Gorgones : comptage dedie des colonies 2002-2026 (nb / 60 m)
+note_gorgones <- paste0("Comptage dedie des colonies (60 m de transect) ; 2002-2018 : valeurs lues sur les graphiques ",
+                        "C. Bouchon (+/- 1) ; 2022/2026 : fiche de saisie (6 sections de 10 m)")
+if (nrow(Gorgones_longue) > 0) {
+  for (station_value in unique(Gorgones_longue$Station)) {
+    df_station <- Gorgones_longue %>% filter(Station == station_value)
+    p <- graph_barres_sd(df_station, "Annee", "Nb_gorgones_60m", fill = "Source", palette = Couleurs_source,
+                         labels_fill = Libelles_source, decimales = 0,
+                         titre = str_wrap(paste("Nombre de gorgones (comptage dedie) -", station_value), 50),
+                         sous_titre = str_wrap(note_gorgones, 95), y_lab = "Gorgones / 60 m")
+    sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "historique"),
+                 paste("Gorgones_2002-2026", station_value), "panoramique")
+  }
+  # les deux stations + tendance (chaque campagne = un point)
+  p <- graph_serie(Gorgones_longue %>% mutate(Annee_dec = Annee + (month(Date) - 1) / 12),
+                   "Annee_dec", "Nb_gorgones_60m", "Station", palette = Palette_stations, etiquettes = FALSE,
+                   titre = "Nombre de gorgones (comptage dedie, nb / 60 m)",
+                   sous_titre = str_wrap(note_gorgones, 95), y_lab = "Gorgones / 60 m", decimales = 0)
+  ajouter_tendance(p, "Gorgones")
+  sauver_graph(p, dossier_graph("BENTHOS", "LIT", NULL, "historique"), "Gorgones_2002-2026_stations", "panoramique")
 }
 ```
 
@@ -3130,6 +3341,8 @@ Chiffres_cles <- bind_rows(
                      comparaisons = Comparaison_recrues, cle_tendance = "Recrues"),
   resumer_indicateur(Oursins_modernes, "Densite_m2", "Benthos", "Oursins", "/m²", 2,
                      comparaisons = Comparaison_oursins, cle_tendance = "Oursins"),
+  resumer_indicateur(Gorgones_suivi, "Nb_gorgones_60m", "Benthos", "Gorgones (comptage dedie)", "/60 m", 0,
+                     comparaisons = Comparaison_gorgones, cle_tendance = "Gorgones"),
   resumer_indicateur(Recouvrement_macroalgues_global, "Recouvrement_moyen", "Benthos",
                      "Recouvrement macroalgues (quadrats)", "%", 1, comparaisons = Comparaison_macroalgues),
   resumer_indicateur(Poissons_indicateurs_modernes, "Densite_100m2", "Poissons", "Densite de poissons", "ind./100 m²", 1,
@@ -3254,10 +3467,18 @@ addWorksheet(wb, "BENTHOS_LIT_ANNEE")
         addWorksheet(wb, "2.9 Recouvrement_macroalgues")
         writeData(wb, sheet = "2.9 Recouvrement_macroalgues", Recouvrement_macroalgues_taxon)
       }
-      addWorksheet(wb, "2.10 Gorgones_LIT")
-      writeData(wb, sheet = "2.10 Gorgones_LIT", Gorgones_annee)
-      addWorksheet(wb, "2.11 Gorgones_historique")
-      writeData(wb, sheet = "2.11 Gorgones_historique", Gorgones_longue)
+      if (!is.null(Gorgones_sections)) {
+        addWorksheet(wb, "2.10 Gorgones_2022-2026")
+        writeData(wb, sheet = "2.10 Gorgones_2022-2026", Gorgones_suivi)
+      }
+      addWorksheet(wb, "2.11 Gorgones_2002-2026")
+      writeData(wb, sheet = "2.11 Gorgones_2002-2026", Gorgones_longue)
+      if (!is.null(Composition_IUCN)) {
+        addWorksheet(wb, "2.12 Composition_2002-2026")
+        writeData(wb, sheet = "2.12 Composition_2002-2026", Composition_historique_complete)
+        addWorksheet(wb, "2.13 Genres_coraux_2002-2026")
+        writeData(wb, sheet = "2.13 Genres_coraux_2002-2026", Taxons_genre_historique)
+      }
       
 # Enregistrer le fichier dans le dossier spécifié
 addWorksheet(wb, "3.1 Tendances")

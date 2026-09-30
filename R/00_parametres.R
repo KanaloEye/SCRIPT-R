@@ -17,9 +17,16 @@ FICHIERS <- list(
   LISTE_POISSONS = "BD Excel/Liste_147_Poissons.xlsx",
   # Optionnels : un avertissement explicite s'ils manquent, et les
   # graphiques retombent sur les seules donnees d'extraction ReefDB.
-  BELT_CORAIL   = "BD Excel/SUIVI_GCRMN_BELT_CORAIL_2026.xlsx",
+  BELT_CORAIL   = "BD Excel/EXCEL/SUIVI_GCRMN_BELT_CORAIL_2026.xlsx",
+  # comptage dedie des gorgones (6 sections de 10 m = 60 m par station)
+  GORGONES      = "BD Excel/EXCEL/SUIVI_GCRMN_GORGONES_2026.xlsx",
   HISTORIQUE_ATE = "BD Excel/Data_Bouchon/250975_ATE_GCRMN_EVOL_BENTHOS_C_BOUCHON.xlsx",
-  ECORECIF_2024  = "BD Excel/Data_Bouchon/Rapport_Bouchon_2024_donnees.xlsx"
+  ECORECIF_2024  = "BD Excel/Data_Bouchon/Rapport_Bouchon_2024_donnees.xlsx",
+  # suivi LIT C. Bouchon 2002-2011 (format IUCN : % par espece et par groupe)
+  HISTORIQUE_IUCN = "BD Excel/Data_Bouchon/GCRMN_IUCN_StBarth_2002-2011.xlsx",
+  # effectifs de gorgones / 60 m (comptage dedie), lus sur les graphiques
+  # C. Bouchon 2002-2018 - completer ici les comptages dedies ulterieurs
+  GORGONES_HISTORIQUE = "BD Excel/Data_Bouchon/Gorgones_historique_2002-2018.xlsx"
 )
 FICHIERS_OBLIGATOIRES <- c("LIT_BENTHOS", "RECRUES", "OURSINS", "MACROALGUES", "POISSONS", "LISTE_POISSONS")
 
@@ -45,7 +52,11 @@ ARBORESCENCE <- list(
   POISSONS = c("BELT_POISSONS", "ANALYSES_MULTIVARIEES")
 )
 NOM_DOSSIER_COMPARAISON <- "COMPARAISON_STATIONS"
-NOMS_PERIODES <- c(annee = "1_Annee_en_cours", evolution = "2_Evolution")
+NOMS_PERIODES <- c(annee = "1_Annee_en_cours", evolution = "2_Evolution",
+                   # series completees par les donnees historiques 2002-2018
+                   # (IUCN, graphiques gorgones) : graphiques SUPPLEMENTAIRES,
+                   # ceux de 2_Evolution sont inchanges
+                   historique = "3_Donnees_historiques")
 
 # Au lancement, l'ancien dossier R_PLOT est renomme en R_PLOT_ANCIEN (le
 # precedent R_PLOT_ANCIEN est remplace) : plus de graphiques obsoletes
