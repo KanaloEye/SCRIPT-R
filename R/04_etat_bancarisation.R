@@ -22,7 +22,11 @@ CAMPAGNES <- list(
   # gorgones (comptage dedie / 60 m) lues sur les graphiques C. Bouchon
   # (campagnes sans barre : Baleine 2015 ; Coco dec. 2013, dec. 2014, 2015)
   Gorgones_graph  = list(Baleine = c(2002:2014, 2016, 2017),
-                         Coco    = c(2003:2012, 2016, 2017, 2018))
+                         Coco    = c(2003:2012, 2016, 2017, 2018)),
+  # Ilet Coco : cases vides completees par "donnees a priori existantes,
+  # non transmises", sauf ces annees (pas de campagne) et ces protocoles
+  Coco_non_transmis_sauf_annees     = c(2015, 2019, 2021, 2025),
+  Coco_non_transmis_sauf_protocoles = c("Macroalgues (quadrats)", "Coraux - colonies (BELT)")
 )
 
 # Libelles et couleurs des sources (ordre de la legende)
@@ -46,7 +50,7 @@ construire_inventaire <- function() {
   hist_B <- setdiff(B, c(R, N)); hist_C <- setdiff(C, N)
   I_B <- CAMPAGNES$IUCN$Baleine; I_C <- CAMPAGNES$IUCN$Coco
   G_B <- CAMPAGNES$Gorgones_graph$Baleine; G_C <- CAMPAGNES$Gorgones_graph$Coco
-  dplyr::bind_rows(
+  inventaire <- dplyr::bind_rows(
     # LIT - recouvrement benthique : detail par espece (IUCN) jusqu'en 2011,
     # puis valeurs compilees ATE
     ligne("LIT - recouvrement benthique", "Baleine", I_B, S[6]),
@@ -88,7 +92,15 @@ construire_inventaire <- function() {
     ligne("Gorgones (comptage dedie)", "Baleine", N, S[2]),
     ligne("Gorgones (comptage dedie)", "Coco", G_C, S[7]),
     ligne("Gorgones (comptage dedie)", "Coco", N, S[2])
-  ) %>%
+  )
+  # Ilet Coco : cases vides -> donnees a priori existantes, non transmises
+  coco_vides <- tidyr::expand_grid(
+    Protocole = setdiff(unique(inventaire$Protocole), CAMPAGNES$Coco_non_transmis_sauf_protocoles),
+    Station = "Coco",
+    Annee = setdiff(ANNEES_INVENTAIRE, CAMPAGNES$Coco_non_transmis_sauf_annees)) %>%
+    dplyr::anti_join(inventaire, by = c("Protocole", "Station", "Annee")) %>%
+    dplyr::mutate(Source = S[5], Inclus = FALSE)
+  dplyr::bind_rows(inventaire, coco_vides) %>%
     dplyr::mutate(
       Double = (Station == "Baleine" & Annee %in% CAMPAGNES$Double_campagne$Baleine |
                 Station == "Coco" & Annee %in% CAMPAGNES$Double_campagne$Coco) &
