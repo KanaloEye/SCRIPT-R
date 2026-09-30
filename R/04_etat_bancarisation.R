@@ -25,7 +25,7 @@ CAMPAGNES <- list(
                          Coco    = c(2003:2012, 2016, 2017, 2018)),
   # Ilet Coco : cases vides completees par "donnees a priori existantes,
   # non transmises", sauf ces annees (pas de campagne) et ces protocoles
-  Coco_non_transmis_sauf_annees     = c(2015, 2019, 2021, 2025),
+  Coco_non_transmis_sauf_annees     = c(2002, 2015, 2019, 2021, 2025),  # suivi de Coco depuis 2003
   Coco_non_transmis_sauf_protocoles = c("Macroalgues (quadrats)", "Coraux - colonies (BELT)")
 )
 
