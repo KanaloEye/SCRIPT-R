@@ -91,6 +91,11 @@ SURFACE_QUADRAT_RECRUES_M2    <- 0.5   # nb recrues / surface = recrues/m2
 SURFACE_QUADRAT_OURSINS_M2    <- 1
 SURFACE_BELT_PAR_DEFAUT_M2    <- 10    # 10 m x 1 m si non renseigne
 SURFACE_HISTO_OURSINS_M2      <- 60    # rapport Eco Récif Environnement : effectifs / 60 m2
+# Oursins : especes prises en compte dans TOUS les indicateurs (densite,
+# tests, tendances, historique). Diadema antillarum seul = l'oursin
+# brouteur cle, suivi apres l'epizootie de 2022 ; les autres especes
+# (Echinometra, Eucidaris...) sont ignorees.
+ESPECES_OURSINS <- c("Diadema antillarum")
 SURFACE_HISTO_RECRUES_M2      <- 30    # rapport Eco Récif Environnement : juveniles / 30 m2
 
 # BELT CORAIL - etats de sante

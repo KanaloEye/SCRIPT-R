@@ -706,13 +706,15 @@ result_OURSINS <- OURSINS %>% distinct(Annee, Station, Replicat) %>% count(Annee
 print(result_OURSINS)
 write_xlsx(result_OURSINS, file.path(DOSSIER_BANCARISATION, "result_OURSINS.xlsx"))
 
-# Densite totale (tous taxons) PAR QUADRAT. NB : un quadrat peut avoir
-# plusieurs lignes (une par espece) - l'ancienne version divisait par le
-# nombre de LIGNES au lieu du nombre de QUADRATS, ce qui sous-estimait
-# la densite des qu'un quadrat comptait plusieurs especes.
+# Densite PAR QUADRAT des seules especes de ESPECES_OURSINS (Diadema
+# antillarum, cf. R/00_parametres.R). Tous les quadrats sont gardes : un
+# quadrat sans Diadema compte 0. NB : un quadrat peut avoir plusieurs
+# lignes (une par espece) - on divise par le nombre de QUADRATS.
+libelle_oursins <- paste(ESPECES_OURSINS, collapse = ", ")
 Oursins_quadrat <- OURSINS %>%
   group_by(Programme, Station, Annee, Replicat) %>%
-  summarise(Densite_m2 = sum(Abondance) / SURFACE_QUADRAT_OURSINS_M2, .groups = "drop")
+  summarise(Densite_m2 = sum(Abondance[Taxon %in% ESPECES_OURSINS]) / SURFACE_QUADRAT_OURSINS_M2,
+            .groups = "drop")
 
 Oursins_modernes <- Oursins_quadrat %>%
   group_by(Station, Annee) %>%
@@ -723,7 +725,7 @@ Oursins_modernes <- Oursins_quadrat %>%
 
 # Densite par espece (pour la composition), zeros inclus
 Oursins_taxons <- OURSINS %>%
-  filter(Taxon != "") %>%
+  filter(Taxon %in% ESPECES_OURSINS) %>%
   group_by(Station, Annee, Taxon) %>%
   summarise(Effectif = sum(Abondance), .groups = "drop") %>%
   left_join(Oursins_modernes %>% select(Station, Annee, n_quadrats), by = c("Station", "Annee")) %>%
@@ -1913,6 +1915,7 @@ if (file.exists(FICHIERS$ECORECIF_2024) &&
     "Oursins_effectifs" %in% excel_sheets(FICHIERS$ECORECIF_2024)) {
   Oursins_historique <- read_excel(FICHIERS$ECORECIF_2024, sheet = "Oursins_effectifs", skip = 3) %>%
     slice(1:4) %>%  # 4 especes ; le reste de la feuille = note de bas de page
+    filter(Espèce %in% ESPECES_OURSINS) %>%
     pivot_longer(-Espèce, names_to = "Annee_brute", values_to = "Effectif") %>%
     mutate(Annee = suppressWarnings(as.numeric(Annee_brute)),
            Effectif = suppressWarnings(as.numeric(Effectif))) %>%
@@ -2533,9 +2536,9 @@ if (nrow(Oursins_longue) > 0) {
   p <- graph_serie(Oursins_longue, "Annee", "Densite_m2", "Station", palette = Palette_stations,
                    sd = "Oursins_sd", unite = "ind./m²", decimales = 2,
                    seuils = SEUILS_REFERENCE[["Oursins"]],
-                   titre = str_wrap("Evolution de la densite totale d'oursins (tous taxons)", 45),
+                   titre = str_wrap(paste("Evolution de la densite de", libelle_oursins), 45),
                    sous_titre = "Rond = extraction ReefDB (quadrat) ; carre = rapport Eco Récif Environnement 2024 (Baleine uniquement)\nBarres d'erreur = ecart-type inter-quadrats (annees d'extraction)",
-                   y_lab = "Oursins / m²")
+                   y_lab = "Individus / m²")
   ajouter_tendance(p, "Oursins")
   sauver_graph(p, dossier_graph("BENTHOS", "OURSINS", NULL, "evolution"), "Evolution_2018_2026_oursins",
                "pleine", hauteur = 14)
@@ -2545,15 +2548,16 @@ if (nrow(Oursins_longue) > 0) {
     p <- graph_barres_sd(df_station, "Annee", "Densite_m2", sd = "Oursins_sd", fill = "Source",
                          palette = Couleurs_source, labels_fill = Libelles_source,
                          comparaisons = Comparaison_oursins %>% filter(Station == station_value),
-                         titre = str_wrap(paste("Densite d'oursins -", station_value), 50),
+                         titre = str_wrap(paste("Densite de", libelle_oursins, "-", station_value), 50),
                          sous_titre = "Moyenne +/- ecart-type inter-quadrats ; * test de Wilcoxon vs annee de suivi precedente",
-                         y_lab = "Oursins / m²", decimales = 2)
+                         y_lab = "Individus / m²", decimales = 2)
     sauver_graph(p, dossier_graph("BENTHOS", "OURSINS", station_value, "evolution"), paste0("Evolution_OURSINS_", station_value),
                  "large", largeur = min(24, max(14, 1.4 * n_distinct(df_station$Annee) + 6)))
   }
 
-  ## Composition par espece (annees d'extraction)
-  for (station_value in unique(Oursins_taxons$Station)) {
+  ## Composition par espece (annees d'extraction) : seulement si plusieurs
+  ## especes sont retenues dans ESPECES_OURSINS
+  for (station_value in if (length(ESPECES_OURSINS) > 1) unique(Oursins_taxons$Station) else character(0)) {
     p <- graph_empile(Oursins_taxons %>% filter(Station == station_value), "Annee", "Densite_m2", "Taxon",
                       Palette_oursin, titre = str_wrap(paste("Densite d'oursins par espece -", station_value), 50),
                       y_lab = "Oursins / m²", decimales = 2, suffixe = "", legende_italique = TRUE)
@@ -2721,7 +2725,7 @@ sauver_graph(p, dossier_graph("BENTHOS", "MACROALGUES", NULL, "annee"),
 
 ## Oursins : densite par espece (station) + comparaison des stations
 annee_courante_oursins <- max(Oursins_modernes$Annee, na.rm = TRUE)
-for (station_value in unique(Oursins_taxons$Station)) {
+for (station_value in if (length(ESPECES_OURSINS) > 1) unique(Oursins_taxons$Station) else character(0)) {
   df <- Oursins_taxons %>% filter(Station == station_value, Annee == annee_courante_oursins, Densite_m2 > 0)
   if (nrow(df) == 0) next
   p <- graph_barres_sd(df, "Taxon", "Densite_m2", fill = "Taxon", palette = Palette_oursin, decimales = 2,
@@ -2733,8 +2737,8 @@ for (station_value in unique(Oursins_taxons$Station)) {
 }
 p <- graph_barres_sd(Oursins_modernes %>% filter(Annee == annee_courante_oursins), "Station", "Densite_m2",
                      sd = "Oursins_sd", fill = "Station", palette = Palette_stations, decimales = 2,
-                     titre = paste("Densite d'oursins", annee_courante_oursins),
-                     sous_titre = "Moyenne +/- ET des quadrats (tous taxons)", y_lab = "Oursins / m²") +
+                     titre = paste("Densite de", libelle_oursins, annee_courante_oursins),
+                     sous_titre = "Moyenne +/- ET des quadrats", y_lab = "Individus / m²") +
   theme(legend.position = "none")
 sauver_graph(p, dossier_graph("BENTHOS", "OURSINS", NULL, "annee"),
              paste0("Densite_oursins_", annee_courante_oursins, "_stations"), "standard")
@@ -3339,7 +3343,7 @@ Chiffres_cles <- bind_rows(
                      protocole = protocole_belt),
   resumer_indicateur(Recrues_modernes, "Recrues_m2", "Benthos", "Recrues coralliennes", "/m²", 2,
                      comparaisons = Comparaison_recrues, cle_tendance = "Recrues"),
-  resumer_indicateur(Oursins_modernes, "Densite_m2", "Benthos", "Oursins", "/m²", 2,
+  resumer_indicateur(Oursins_modernes, "Densite_m2", "Benthos", paste("Oursins", libelle_oursins), "/m²", 2,
                      comparaisons = Comparaison_oursins, cle_tendance = "Oursins"),
   resumer_indicateur(Gorgones_suivi, "Nb_gorgones_60m", "Benthos", "Gorgones (comptage dedie)", "/60 m", 0,
                      comparaisons = Comparaison_gorgones, cle_tendance = "Gorgones"),
