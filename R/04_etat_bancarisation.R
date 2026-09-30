@@ -16,7 +16,13 @@ CAMPAGNES <- list(
   Double_campagne = list(Baleine = 2002:2006, Coco = 2003:2006),
   EcoRecif_rapport = c(2018, 2020, 2023, 2024),  # Baleine uniquement
   EcoRecif_Coco_vide = 2024,                     # ligne vide dans l'ATE
-  Creocean        = c(2022, 2026)
+  Creocean        = c(2022, 2026),
+  # suivi LIT C. Bouchon au format IUCN (% par espece et par groupe)
+  IUCN            = list(Baleine = 2002:2011, Coco = 2003:2011),
+  # gorgones (comptage dedie / 60 m) lues sur les graphiques C. Bouchon
+  # (campagnes sans barre : Baleine 2015 ; Coco dec. 2013, dec. 2014, 2015)
+  Gorgones_graph  = list(Baleine = c(2002:2014, 2016, 2017),
+                         Coco    = c(2003:2012, 2016, 2017, 2018))
 )
 
 # Libelles et couleurs des sources (ordre de la legende)
@@ -25,7 +31,9 @@ Sources_inventaire <- c(
   "Excel Creocean - donnees brutes non bancarisees"    = "#7FBF7B",
   "Rapport Eco Récif Environnement 2024 - valeurs retranscrites du PDF" = "#F4A261",
   "Historique ATE - valeurs compilees des rapports"    = "#FFE08A",
-  "Donnees Eco Récif Environnement a priori existantes, non transmises" = "#D9D9D9"
+  "Donnees Eco Récif Environnement a priori existantes, non transmises" = "#D9D9D9",
+  "Excel IUCN 2002-2011 (C. Bouchon) - % par espece, non bancarise" = "#80CDC1",
+  "Graphiques C. Bouchon - valeurs lues sur les barres (+/- 1)"      = "#C2A5CF"
 )
 S <- names(Sources_inventaire)
 
@@ -36,12 +44,17 @@ construire_inventaire <- function() {
   }
   B <- CAMPAGNES$ATE_Baleine; C <- CAMPAGNES$ATE_Coco; R <- CAMPAGNES$EcoRecif_rapport; N <- CAMPAGNES$Creocean
   hist_B <- setdiff(B, c(R, N)); hist_C <- setdiff(C, N)
+  I_B <- CAMPAGNES$IUCN$Baleine; I_C <- CAMPAGNES$IUCN$Coco
+  G_B <- CAMPAGNES$Gorgones_graph$Baleine; G_C <- CAMPAGNES$Gorgones_graph$Coco
   dplyr::bind_rows(
-    # LIT - recouvrement benthique
-    ligne("LIT - recouvrement benthique", "Baleine", hist_B, S[4]),
+    # LIT - recouvrement benthique : detail par espece (IUCN) jusqu'en 2011,
+    # puis valeurs compilees ATE
+    ligne("LIT - recouvrement benthique", "Baleine", I_B, S[6]),
+    ligne("LIT - recouvrement benthique", "Baleine", setdiff(hist_B, I_B), S[4]),
     ligne("LIT - recouvrement benthique", "Baleine", R, S[3]),
     ligne("LIT - recouvrement benthique", "Baleine", N, S[1]),
-    ligne("LIT - recouvrement benthique", "Coco", hist_C, S[4]),
+    ligne("LIT - recouvrement benthique", "Coco", I_C, S[6]),
+    ligne("LIT - recouvrement benthique", "Coco", setdiff(hist_C, I_C), S[4]),
     ligne("LIT - recouvrement benthique", "Coco", CAMPAGNES$EcoRecif_Coco_vide, S[5], FALSE),
     ligne("LIT - recouvrement benthique", "Coco", N, S[1]),
     # Recrues coralliennes
@@ -68,12 +81,18 @@ construire_inventaire <- function() {
     ligne("Poissons (BELT)", "Baleine", R, S[3]),
     ligne("Poissons (BELT)", "Baleine", N, S[1]),
     ligne("Poissons (BELT)", "Coco", c(hist_C, CAMPAGNES$EcoRecif_Coco_vide), S[5], FALSE),
-    ligne("Poissons (BELT)", "Coco", N, S[1])
+    ligne("Poissons (BELT)", "Coco", N, S[1]),
+    # Gorgones : comptage dedie des colonies (effectifs / 60 m)
+    ligne("Gorgones (comptage dedie)", "Baleine", setdiff(G_B, R), S[7]),
+    ligne("Gorgones (comptage dedie)", "Baleine", R, S[3]),
+    ligne("Gorgones (comptage dedie)", "Baleine", N, S[2]),
+    ligne("Gorgones (comptage dedie)", "Coco", G_C, S[7]),
+    ligne("Gorgones (comptage dedie)", "Coco", N, S[2])
   ) %>%
     dplyr::mutate(
       Double = (Station == "Baleine" & Annee %in% CAMPAGNES$Double_campagne$Baleine |
                 Station == "Coco" & Annee %in% CAMPAGNES$Double_campagne$Coco) &
-               Source == S[4],
+               Source %in% S[c(4, 6, 7)],
       Symbole = dplyr::case_when(Inclus & Double ~ "✓²", Inclus ~ "✓", TRUE ~ "✗")
     )
 }
@@ -99,6 +118,7 @@ graph_etat_bancarisation <- function(inventaire) {
                   subtitle = "Source de la donnee par annee ; ✓ = utilisee dans le traitement 2026 ; ✗ = non utilisee ; case vide = pas de donnee connue",
                   caption = paste0("² deux campagnes dans l'annee (moyennees dans les graphiques).  ",
                                    "Coraux - colonies : protocole BELT realise en 2022 (toutes colonies) et 2026 (colonies > 10 cm), non comparables.\n",
+                                   "LIT 2002-2011 : detail par espece (fichier IUCN) ; gorgones 2002-2018 : valeurs lues sur les graphiques C. Bouchon.\n",
                                    "Suivi Eco Récif Environnement 2002-2024 (donnees brutes Excel non transmises) ; campagnes 2022 et 2026 Creocean."),
                   x = NULL, y = NULL) +
     theme_fiche(legende = "bottom") +
@@ -114,7 +134,8 @@ graph_etat_bancarisation <- function(inventaire) {
 # par annee. Chaque case contient un CODE de source + un symbole, choisi dans
 # une liste deroulante ; la couleur de la case suit automatiquement le code
 # (mise en forme conditionnelle) : modifier le texte suffit.
-Codes_sources <- c("BDR" = S[1], "XLS" = S[2], "RPT" = S[3], "ATE" = S[4], "NT" = S[5])
+Codes_sources <- c("BDR" = S[1], "XLS" = S[2], "RPT" = S[3], "ATE" = S[4], "NT" = S[5],
+                   "IUCN" = S[6], "GRA" = S[7])
 
 exporter_etat_bancarisation_excel <- function(inventaire, chemin) {
   code <- setNames(names(Codes_sources), Codes_sources)
@@ -167,7 +188,7 @@ exporter_etat_bancarisation_excel <- function(inventaire, chemin) {
   }
 
   # feuille des listes + legende
-  choix <- c(paste(rep(names(Codes_sources), each = 2), c("✓", "✗")), "ATE ✓²", "")
+  choix <- c(paste(rep(names(Codes_sources), each = 2), c("✓", "✗")), "ATE ✓²", "IUCN ✓²", "GRA ✓²", "")
   openxlsx::addWorksheet(wb, "Legende")
   legende <- tibble::tibble(Code = names(Codes_sources), Signification = unname(Codes_sources))
   openxlsx::writeData(wb, "Legende", legende, startRow = 1, startCol = 1,
