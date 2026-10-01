@@ -2925,6 +2925,208 @@ for (station_value in unique(Regime_trophique_pct_ANNEE$Station)) {
 }
 ```
 
+### 2.2.1bis Comparaison des stations (poissons)
+```{r}
+# Calculs au niveau du TRANSECT (moyenne +/- ET entre transects), a partir
+# des classes de taille observees (POISSONS_CLASSES). NB : 2 transects par
+# station -> comparaison descriptive, pas de test.
+annee_poissons <- max(as.numeric(as.character(POISSONS_CLASSES$Annee)), na.rm = TRUE)
+Transects_poissons <- Surface_replicats_poissons %>%
+  mutate(Annee = as.numeric(as.character(Annee))) %>%
+  filter(!is.na(Replicat), Replicat != "") %>%
+  select(Station, Annee, Replicat, Surface_replicat_m2)
+Familles_poissons <- POISSONS %>% distinct(Taxon, Famille)
+Classes_comp <- POISSONS_CLASSES %>%
+  mutate(Annee = as.numeric(as.character(Annee))) %>%
+  left_join(Familles_poissons, by = "Taxon")
+
+# Moyenne +/- ET entre transects d'une grandeur calculee par transect
+# (les transects sans individu du groupe comptent 0)
+resumer_transects <- function(df_transect, valeur) {
+  df_transect %>%
+    group_by(Station, Annee, Indicateur) %>%
+    summarise(ET = round(sd(.data[[valeur]]), 2), Moyenne = round(mean(.data[[valeur]]), 2),
+              n_transects = n(), .groups = "drop")
+}
+par_transect <- function(df, indicateur, type = c("densite", "biomasse", "richesse")) {
+  type <- match.arg(type)
+  df %>%
+    group_by(Station, Annee, Replicat) %>%
+    summarise(N = sum(Abondance, na.rm = TRUE), B = sum(Biomasse_kg, na.rm = TRUE),
+              S = n_distinct(Taxon), .groups = "drop") %>%
+    right_join(Transects_poissons, by = c("Station", "Annee", "Replicat")) %>%
+    mutate(across(c(N, B, S), ~ replace_na(., 0)),
+           Valeur = switch(type,
+                           densite  = 100 * N / Surface_replicat_m2,
+                           biomasse = 10000 * B / Surface_replicat_m2,
+                           richesse = S),
+           Indicateur = indicateur)
+}
+etiquette_station_annee <- function(station, annee) paste0(nom_court_station(station), "\n", annee)
+
+## (1) Indicateurs principaux, avec et sans juveniles (< 5 cm)
+Comparaison_poissons <- bind_rows(
+  par_transect(Classes_comp, "Densite (ind./100 m²)", "densite"),
+  par_transect(Classes_comp %>% filter(Taille_moyenne_cm >= 5), "Densite hors juveniles < 5 cm (ind./100 m²)", "densite"),
+  par_transect(Classes_comp, "Biomasse (kg/ha)", "biomasse"),
+  par_transect(Classes_comp, "Richesse specifique (nb especes / transect)", "richesse")
+) %>%
+  resumer_transects("Valeur") %>%
+  mutate(Indicateur = factor(Indicateur, levels = unique(Indicateur)))
+
+p <- graph_barres_sd(Comparaison_poissons %>% filter(Annee == annee_poissons), "Station", "Moyenne", sd = "ET",
+                     fill = "Station", palette = Palette_stations, decimales = 1,
+                     titre = paste("Peuplement de poissons : comparaison des stations -", annee_poissons),
+                     sous_titre = "Moyenne +/- ecart-type entre transects (BELT 2 x 150 m x 2 m)") +
+  facet_wrap(~Indicateur, scales = "free_y", ncol = 2, labeller = label_wrap_gen(35)) +
+  scale_x_discrete(labels = nom_court_station) +
+  theme(legend.position = "none")
+sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", NULL, "annee"),
+             paste0("Comparaison_stations_indicateurs_", annee_poissons), "pleine", hauteur = 16)
+
+p <- graph_barres_sd(Comparaison_poissons, "Annee", "Moyenne", sd = "ET", fill = "Station",
+                     palette = Palette_stations, decimales = 1,
+                     titre = "Peuplement de poissons : comparaison des stations",
+                     sous_titre = "Moyenne +/- ecart-type entre transects (extraction ReefDB)") +
+  facet_wrap(~Indicateur, scales = "free_y", ncol = 2, labeller = label_wrap_gen(35))
+sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", NULL, "evolution"),
+             "Comparaison_stations_indicateurs", "pleine", hauteur = 16)
+
+## (2) Structure trophique comparee (abondance et biomasse, % par station x annee)
+Trophique_comparee <- Classes_comp %>%
+  mutate(Regime_trophique = ifelse(is.na(Regime_trophique) | Regime_trophique == "",
+                                   "Regime non renseigne", Regime_trophique)) %>%
+  group_by(Station, Annee, Regime_trophique) %>%
+  summarise(Abondance = sum(Abondance, na.rm = TRUE), Biomasse = sum(Biomasse_kg, na.rm = TRUE), .groups = "drop") %>%
+  group_by(Station, Annee) %>%
+  mutate(Abondance = round(100 * Abondance / sum(Abondance), 1),
+         Biomasse  = round(100 * Biomasse / sum(Biomasse), 1)) %>%
+  ungroup() %>%
+  arrange(Annee, Station) %>%
+  mutate(Station_annee = factor(etiquette_station_annee(Station, Annee),
+                                levels = unique(etiquette_station_annee(Station, Annee))))
+for (periode in c("annee", "evolution")) {
+  df_per <- if (periode == "annee") filter(Trophique_comparee, Annee == annee_poissons) %>% droplevels() else Trophique_comparee
+  for (param in c("Abondance", "Biomasse")) {
+    p <- graph_empile(df_per, "Station_annee", param, "Regime_trophique",
+                      c(Palette_regime_trophique[Ordre_regime_trophique], "Regime non renseigne" = COULEUR_NON_RENSEIGNE),
+                      titre = paste0("Structure trophique (", tolower(param), ") : comparaison des stations",
+                                     if (periode == "annee") paste(" -", annee_poissons) else ""),
+                      sous_titre = paste("Part de chaque regime trophique dans", tolower(param), "totale (%)"),
+                      y_lab = paste(param, "(%)"), legende_nrow = 2, decimales = 0)
+    sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", NULL, periode),
+                 paste0("Comparaison_stations_trophique_", tolower(param),
+                        if (periode == "annee") paste0("_", annee_poissons) else ""), "standard")
+  }
+}
+
+## (3) Biomasse des groupes cles (herbivores, predateurs peches)
+dans_groupe <- function(df, def) {
+  ok <- df$Famille %in% def$familles | word(df$Taxon, 1) %in% def$genres
+  if (!is.null(def$regimes)) ok <- ok & df$Regime_trophique %in% def$regimes
+  ok & !is.na(ok)
+}
+Groupes_cles <- bind_rows(lapply(names(GROUPES_POISSONS_CLES), function(g) {
+  bind_rows(
+    par_transect(Classes_comp[dans_groupe(Classes_comp, GROUPES_POISSONS_CLES[[g]]), ], g, "biomasse") %>%
+      mutate(Mesure = "Biomasse (kg/ha)"),
+    par_transect(Classes_comp[dans_groupe(Classes_comp, GROUPES_POISSONS_CLES[[g]]), ], g, "densite") %>%
+      mutate(Mesure = "Densite (ind./100 m²)"))
+})) %>%
+  group_by(Mesure) %>% group_split() %>%
+  lapply(function(d) resumer_transects(d, "Valeur") %>% mutate(Mesure = d$Mesure[1])) %>%
+  bind_rows() %>%
+  mutate(Indicateur = factor(Indicateur, levels = names(GROUPES_POISSONS_CLES)))
+for (mesure in unique(Groupes_cles$Mesure)) {
+  p <- graph_barres_sd(Groupes_cles %>% filter(Mesure == mesure), "Annee", "Moyenne", sd = "ET",
+                       fill = "Station", palette = Palette_stations, decimales = 1,
+                       titre = paste("Groupes cles :", tolower(mesure)),
+                       sous_titre = "Moyenne +/- ecart-type entre transects ; groupes definis dans GROUPES_POISSONS_CLES",
+                       y_lab = mesure) +
+    facet_wrap(~Indicateur, scales = "free_y", labeller = label_wrap_gen(30))
+  sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", NULL, "evolution"),
+               paste0("Comparaison_stations_groupes_cles_", ifelse(grepl("Biomasse", mesure), "biomasse", "densite")),
+               "panoramique", hauteur = 12)
+  p <- graph_barres_sd(Groupes_cles %>% filter(Mesure == mesure, Annee == annee_poissons), "Station", "Moyenne", sd = "ET",
+                       fill = "Station", palette = Palette_stations, decimales = 1,
+                       titre = paste("Groupes cles :", tolower(mesure), "-", annee_poissons),
+                       sous_titre = "Moyenne +/- ecart-type entre transects", y_lab = mesure) +
+    facet_wrap(~Indicateur, scales = "free_y", labeller = label_wrap_gen(30)) +
+    scale_x_discrete(labels = nom_court_station) + theme(legend.position = "none")
+  sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", NULL, "annee"),
+               paste0("Comparaison_stations_groupes_cles_", ifelse(grepl("Biomasse", mesure), "biomasse", "densite"),
+                      "_", annee_poissons), "large")
+}
+
+# Herbivores et macroalgues : meme annee, meme station
+Herbivores_macroalgues <- Groupes_cles %>%
+  filter(Indicateur == names(GROUPES_POISSONS_CLES)[1], Mesure == "Biomasse (kg/ha)") %>%
+  select(Station, Annee, Biomasse_herbivores_kg_ha = Moyenne) %>%
+  inner_join(Recouvrement_detail_annee %>% filter(Categorie_detail == "Macroalgues molles") %>%
+               select(Station, Annee, Macroalgues_pct = Pourcentage_moyen), by = c("Station", "Annee"))
+cat("\nBiomasse d'herbivores et recouvrement en macroalgues :\n")
+print(Herbivores_macroalgues)
+
+## (4) Structure en tailles comparee
+Taille_comparee <- Taille_POISSONS_moderne %>%
+  arrange(Annee, Station) %>%
+  mutate(Taille_classe = factor(Taille_classe, levels = names(Palette_taille)),
+         Station_annee = factor(etiquette_station_annee(Station, Annee),
+                                levels = unique(etiquette_station_annee(Station, Annee))))
+p <- graph_empile(Taille_comparee, "Station_annee", "Abondance_pourcent", "Taille_classe", Palette_taille,
+                  titre = "Structure en tailles : comparaison des stations",
+                  sous_titre = "Part de chaque classe de taille dans l'abondance totale (%)",
+                  y_lab = "Abondance (%)", legende_nrow = 1, decimales = 0)
+sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", NULL, "evolution"),
+             "Comparaison_stations_structure_taille", "standard")
+p <- graph_empile(Taille_comparee %>% filter(Annee == annee_poissons) %>% droplevels(), "Station_annee",
+                  "Abondance_pourcent", "Taille_classe", Palette_taille,
+                  titre = paste("Structure en tailles : comparaison des stations -", annee_poissons),
+                  sous_titre = "Part de chaque classe de taille dans l'abondance totale (%)",
+                  y_lab = "Abondance (%)", legende_nrow = 1, decimales = 0)
+sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", NULL, "annee"),
+             paste0("Comparaison_stations_structure_taille_", annee_poissons), "standard")
+
+def_predateurs <- GROUPES_POISSONS_CLES[[2]]
+Tailles_indicateurs <- bind_rows(
+  Classes_comp %>%
+    group_by(Station, Annee) %>%
+    summarise(Valeur = round(100 * sum(Abondance[Taille_moyenne_cm >= SEUIL_GRANDS_POISSONS_CM], na.rm = TRUE) /
+                               sum(Abondance, na.rm = TRUE), 1), .groups = "drop") %>%
+    mutate(Indicateur = paste0("Individus >= ", SEUIL_GRANDS_POISSONS_CM, " cm (% de l'abondance)")),
+  Classes_comp %>%
+    filter(Taille_moyenne_cm >= 5) %>%
+    group_by(Station, Annee) %>%
+    summarise(Valeur = round(weighted.mean(Taille_moyenne_cm, Abondance, na.rm = TRUE), 1), .groups = "drop") %>%
+    mutate(Indicateur = "Taille moyenne hors juveniles < 5 cm (cm)"),
+  Classes_comp[dans_groupe(Classes_comp, def_predateurs), ] %>%
+    group_by(Station, Annee) %>%
+    summarise(Valeur = round(weighted.mean(Taille_moyenne_cm, Abondance, na.rm = TRUE), 1), .groups = "drop") %>%
+    mutate(Indicateur = "Taille moyenne des predateurs peches (cm)")
+) %>%
+  mutate(Indicateur = factor(Indicateur, levels = unique(Indicateur)))
+p <- graph_barres_sd(Tailles_indicateurs, "Annee", "Valeur", fill = "Station", palette = Palette_stations,
+                     decimales = 1, titre = "Indicateurs de taille : comparaison des stations",
+                     sous_titre = paste("Tailles = centres des classes de taille BELT ; classe > 40 cm comptee",
+                                        TAILLE_CLASSE_PLUS_40_CM, "cm")) +
+  facet_wrap(~Indicateur, scales = "free_y", labeller = label_wrap_gen(30))
+sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", NULL, "evolution"),
+             "Comparaison_stations_indicateurs_taille", "panoramique", hauteur = 12)
+p <- graph_barres_sd(Tailles_indicateurs %>% filter(Annee == annee_poissons), "Station", "Valeur",
+                     fill = "Station", palette = Palette_stations, decimales = 1,
+                     titre = paste("Indicateurs de taille : comparaison des stations -", annee_poissons),
+                     sous_titre = paste("Tailles = centres des classes de taille BELT ; classe > 40 cm comptee",
+                                        TAILLE_CLASSE_PLUS_40_CM, "cm")) +
+  facet_wrap(~Indicateur, scales = "free_y", labeller = label_wrap_gen(30)) +
+  scale_x_discrete(labels = nom_court_station) + theme(legend.position = "none")
+sauver_graph(p, dossier_graph("POISSONS", "BELT_POISSONS", NULL, "annee"),
+             paste0("Comparaison_stations_indicateurs_taille_", annee_poissons), "panoramique", hauteur = 12)
+
+cat("\nComparaison des stations - indicateurs poissons :\n"); print(Comparaison_poissons, n = Inf)
+cat("\nComparaison des stations - groupes cles :\n"); print(Groupes_cles, n = Inf)
+cat("\nComparaison des stations - indicateurs de taille :\n"); print(Tailles_indicateurs, n = Inf)
+```
+
 ### 2.2.2 Analyse temporelle (Evolution)
 #### 2.2.2.1 Indicateurs poissons (historique inclus)
 ```{r}
@@ -3594,6 +3796,16 @@ writeData(wb_poissons, sheet = "2.5 Evolution_Famille", REPLICAT_Famille_POISSON
 
 addWorksheet(wb_poissons, "2.6 Evolution_Taxon")
 writeData(wb_poissons, sheet = "2.6 Evolution_Taxon", REPLICAT_Taxon_POISSONS_EVOLUTION)
+
+addWorksheet(wb_poissons, "3.1 Comparaison_stations")
+writeData(wb_poissons, sheet = "3.1 Comparaison_stations", Comparaison_poissons)
+addWorksheet(wb_poissons, "3.2 Trophique_compare")
+writeData(wb_poissons, sheet = "3.2 Trophique_compare", Trophique_comparee %>% select(-Station_annee))
+addWorksheet(wb_poissons, "3.3 Groupes_cles")
+writeData(wb_poissons, sheet = "3.3 Groupes_cles", Groupes_cles)
+writeData(wb_poissons, sheet = "3.3 Groupes_cles", Herbivores_macroalgues, startCol = ncol(Groupes_cles) + 2)
+addWorksheet(wb_poissons, "3.4 Indicateurs_taille")
+writeData(wb_poissons, sheet = "3.4 Indicateurs_taille", Tailles_indicateurs)
 
 saveWorkbook(wb_poissons, chemin_complet_poissons, overwrite = TRUE)
 

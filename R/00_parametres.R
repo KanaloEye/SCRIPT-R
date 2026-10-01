@@ -144,6 +144,23 @@ CATEGORIES_ALGUES_RATIO <- c("Macroalgues molles", "Turf algal", "Macroalgues ca
 # protocoles - a harmoniser avec le rapport Eco Récif Environnement pour comparer.
 TAILLE_CLASSE_PLUS_40_CM <- 40
 
+# Poissons : groupes cles pour la comparaison des stations (indicateurs
+# GCRMN / AGRRA). Un taxon appartient au groupe si sa famille (referentiel
+# Liste_147_Poissons) OU son genre est liste, et, si `regimes` est donne,
+# si son regime trophique en fait partie.
+GROUPES_POISSONS_CLES <- list(
+  "Herbivores (perroquets, chirurgiens)" = list(
+    familles = c("Scaridés", "Acanthuridés"), genres = character(0),
+    # + regime "Herbivore" exige (Halichoeres radiatus est classe par
+    # erreur dans les Scaridés du referentiel)
+    regimes = "Herbivore"),
+  "Predateurs peches (merous, vivaneaux, carangues, barracudas)" = list(
+    familles = c("Lutjanidés", "Carangidés", "Sphyraenidés"),
+    genres   = c("Cephalopholis", "Epinephelus", "Mycteroperca"))
+)
+# Seuil des "grands individus" pour la structure en tailles (cm)
+SEUIL_GRANDS_POISSONS_CM <- 20
+
 # Poissons : correspondance nom ReefDB -> nom du referentiel
 # Liste_147_Poissons.xlsx (fautes d'orthographe du referentiel ou
 # synonymes). Mieux : corriger directement le referentiel, puis retirer
