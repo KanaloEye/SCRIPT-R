@@ -2511,6 +2511,40 @@ for (station_value in unique(BDD_long$Station)) {
   sauver_graph(p, dossier_graph("BENTHOS", "LIT", station_value, "evolution"), paste0("Evolution_2002_2026_", station_value), "pleine",
                hauteur = 15)
 }
+
+## (h) Comparaison des stations : corail dur et macroalgues
+# (1) annee en cours : moyenne +/- ET des transects LIT
+annee_courante_lit <- max(Recouvrement_detail_annee$Annee, na.rm = TRUE)
+df_comp <- Recouvrement_detail_annee %>%
+  filter(Annee == annee_courante_lit, Categorie_detail %in% c("Coraux durs", "Macroalgues molles")) %>%
+  mutate(Categorie_detail = factor(Categorie_detail, levels = c("Coraux durs", "Macroalgues molles")))
+p <- graph_barres_sd(df_comp, "Categorie_detail", "Pourcentage_moyen", sd = "Pourcentage_ET",
+                     fill = "Station", palette = Palette_stations, suffixe = "%",
+                     titre = paste("Corail dur et macroalgues -", annee_courante_lit),
+                     sous_titre = "Moyenne +/- ecart-type des transects LIT ; corail dur = scleractiniaires + Millepora",
+                     y_lab = "Recouvrement (%)") +
+  labs(x = NULL)
+sauver_graph(p, dossier_graph("BENTHOS", "LIT", NULL, "annee"),
+             paste0("Comparaison_corail_macroalgues_", annee_courante_lit), "standard")
+
+# (2) serie longue 2002-2026 : un panneau par indicateur, une courbe par station
+p <- ggplot(BDD_long, aes(x = Date, y = Pourcentage, colour = Station)) +
+  geom_smooth(aes(fill = Station), method = "lm", formula = y ~ x, linewidth = 0.6,
+              linetype = "dashed", alpha = 0.12) +
+  geom_line(linewidth = 0.6, alpha = 0.5) +
+  geom_point(aes(shape = Source), size = 2.2) +
+  scale_colour_manual(values = Palette_stations, name = NULL) +
+  scale_fill_manual(values = Palette_stations, guide = "none") +
+  scale_shape_source() +
+  facet_wrap(~Indicateur, scales = "free_y") +
+  scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.08))) +
+  labs(title = "Corail dur et macroalgues : comparaison des stations 2002-2026",
+       subtitle = paste("Tirets = tendance lineaire (IC 95 %) ; rond = extraction ReefDB (30 m) ;",
+                        "triangle = historique ATE (60 m) ; carre = rapport Eco Récif Environnement 2024"),
+       x = NULL, y = "Recouvrement (%)") +
+  theme_fiche() + theme(legend.box = "vertical")
+sauver_graph(p, dossier_graph("BENTHOS", "LIT", NULL, "evolution"), "Comparaison_corail_macroalgues_2002_2026",
+             "panoramique", hauteur = 13)
 ```
 
 #### 2.1.2.2 Recrues coralliennes
