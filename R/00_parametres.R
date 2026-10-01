@@ -96,6 +96,15 @@ SURFACE_HISTO_OURSINS_M2      <- 60    # rapport Eco Récif Environnement : effe
 # brouteur cle, suivi apres l'epizootie de 2022 ; les autres especes
 # (Echinometra, Eucidaris...) sont ignorees.
 ESPECES_OURSINS <- c("Diadema antillarum")
+
+# Recrues : valeurs absentes du fichier ATE, lues sur les graphiques
+# C. Bouchon (juveniles / 30 m², divises par SURFACE_HISTO_RECRUES_M2).
+# Les autres barres de ces graphiques sont identiques aux valeurs ATE.
+RECRUES_COMPLEMENT_GRAPHIQUES <- tibble::tribble(
+  ~Station,    ~Date,        ~Juveniles_30m2,
+  "Ilet Coco", "2007-06-01", 137,
+  "Ilet Coco", "2010-08-01", 131
+)
 SURFACE_HISTO_RECRUES_M2      <- 30    # rapport Eco Récif Environnement : juveniles / 30 m2
 
 # BELT CORAIL - etats de sante

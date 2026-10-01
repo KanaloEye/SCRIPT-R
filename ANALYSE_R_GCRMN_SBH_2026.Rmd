@@ -1716,7 +1716,20 @@ if (file.exists(FICHIER_HISTORIQUE)) {
                   collapse = " ; "), call. = FALSE)
   }
 
-  BDD_evolution_benthos <- bind_rows(Historique, BDD_evolution_benthos)
+  # Recrues manquantes dans le fichier ATE, completees par les valeurs
+  # lues sur les graphiques C. Bouchon (cf. RECRUES_COMPLEMENT_GRAPHIQUES)
+  Recrues_graphiques <- RECRUES_COMPLEMENT_GRAPHIQUES %>%
+    mutate(Station = harmoniser_station(Station), Date = as.Date(Date), Annee = year(Date),
+           Recrues_m2 = round(Juveniles_30m2 / SURFACE_HISTO_RECRUES_M2, 2),
+           Source = "Graphiques_Bouchon") %>%
+    semi_join(Historique %>% filter(is.na(Recrues_m2)), by = c("Station", "Annee")) %>%
+    select(Station, Date, Annee, Recrues_m2, Source)
+  if (nrow(Recrues_graphiques) > 0) {
+    cat("\nRecrues absentes du fichier ATE, completees par les graphiques C. Bouchon :\n")
+    print(Recrues_graphiques)
+  }
+
+  BDD_evolution_benthos <- bind_rows(Historique, Recrues_graphiques, BDD_evolution_benthos)
 } else {
   warning("Fichier historique ATE introuvable ('", FICHIER_HISTORIQUE, "') - serie longue limitee ",
           "aux autres sources.", call. = FALSE)
@@ -1964,7 +1977,7 @@ if (file.exists(FICHIERS$GORGONES_HISTORIQUE)) {
   Gorgones_graphiques <- read_excel(FICHIERS$GORGONES_HISTORIQUE, sheet = "Gorgones_60m") %>%
     mutate(Station = harmoniser_station(Station), Date = as.Date(Date),
            Annee = as.numeric(Annee), Nb_gorgones_60m = as.numeric(Nb_gorgones_60m),
-           Source = "Historique_Gorgones") %>%
+           Source = "Graphiques_Bouchon") %>%
     filter(!is.na(Nb_gorgones_60m)) %>%
     anti_join(Gorgones_longue, by = c("Station", "Annee")) %>%
     select(Station, Date, Annee, Nb_gorgones_60m, Source)

@@ -12,7 +12,7 @@ ANNEES_INVENTAIRE <- 2002:2026
 CAMPAGNES <- list(
   ATE_Baleine     = c(2002:2014, 2016, 2017, 2018, 2020, 2022, 2023, 2024),
   ATE_Coco        = c(2003:2012, 2016, 2017, 2018, 2022),
-  ATE_Coco_sans_recrues = c(2007, 2010),        # recrues non renseignees
+  ATE_Coco_sans_recrues = c(2007, 2010),        # recrues absentes du fichier ATE (graphiques C. Bouchon)
   Double_campagne = list(Baleine = 2002:2006, Coco = 2003:2006),
   EcoRecif_rapport = c(2018, 2020, 2023, 2024),  # Baleine uniquement
   EcoRecif_Coco_vide = 2024,                     # ligne vide dans l'ATE
@@ -66,7 +66,9 @@ construire_inventaire <- function() {
     ligne("Recrues coralliennes", "Baleine", R, S[3]),
     ligne("Recrues coralliennes", "Baleine", N, S[1]),
     ligne("Recrues coralliennes", "Coco", setdiff(hist_C, CAMPAGNES$ATE_Coco_sans_recrues), S[4]),
-    ligne("Recrues coralliennes", "Coco", c(CAMPAGNES$ATE_Coco_sans_recrues, CAMPAGNES$EcoRecif_Coco_vide), S[5], FALSE),
+    # recrues absentes du fichier ATE : valeurs lues sur les graphiques C. Bouchon
+    ligne("Recrues coralliennes", "Coco", CAMPAGNES$ATE_Coco_sans_recrues, S[7]),
+    ligne("Recrues coralliennes", "Coco", CAMPAGNES$EcoRecif_Coco_vide, S[5], FALSE),
     ligne("Recrues coralliennes", "Coco", N, S[1]),
     # Oursins
     ligne("Oursins", "Baleine", hist_B, S[5], FALSE),
@@ -130,7 +132,7 @@ graph_etat_bancarisation <- function(inventaire) {
                   subtitle = "Source de la donnee par annee ; ✓ = utilisee dans le traitement 2026 ; ✗ = non utilisee ; case vide = pas de donnee connue",
                   caption = paste0("² deux campagnes dans l'annee (moyennees dans les graphiques).  ",
                                    "Coraux - colonies : protocole BELT realise en 2022 (toutes colonies) et 2026 (colonies > 10 cm), non comparables.\n",
-                                   "LIT 2002-2011 : detail par espece (fichier IUCN) ; gorgones 2002-2018 : valeurs lues sur les graphiques C. Bouchon.\n",
+                                   "LIT 2002-2011 : detail par espece (fichier IUCN) ; gorgones 2002-2018 et recrues Coco 2007/2010 : valeurs lues sur les graphiques C. Bouchon.\n",
                                    "Suivi Eco Récif Environnement 2002-2024 (donnees brutes Excel non transmises) ; campagnes 2022 et 2026 Creocean."),
                   x = NULL, y = NULL) +
     theme_fiche(legende = "bottom") +

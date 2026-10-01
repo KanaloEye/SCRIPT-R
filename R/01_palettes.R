@@ -24,7 +24,7 @@ Formes_source <- c(
   "Historique_ATE"            = 17,
   "Rapport_EcoRecif_2024"      = 15,
   "Historique_IUCN"           = 18,
-  "Historique_Gorgones"       = 18,
+  "Graphiques_Bouchon"        = 18,
   "Suivi_Gorgones"            = 16
 )
 Libelles_source <- c(
@@ -34,7 +34,7 @@ Libelles_source <- c(
   "Historique_ATE"            = "Historique ATE",
   "Rapport_EcoRecif_2024"      = "Rapport Eco Récif Environnement 2024",
   "Historique_IUCN"           = "Suivi LIT C. Bouchon 2002-2011",
-  "Historique_Gorgones"       = "Graphiques C. Bouchon 2002-2018",
+  "Graphiques_Bouchon"        = "Graphiques C. Bouchon (valeurs lues)",
   "Suivi_Gorgones"            = "Fiche de saisie gorgones"
 )
 Couleurs_source <- c(
@@ -44,7 +44,7 @@ Couleurs_source <- c(
   "Historique_ATE"            = "grey60",
   "Rapport_EcoRecif_2024"      = "darkorange2",
   "Historique_IUCN"           = "grey45",
-  "Historique_Gorgones"       = "slateblue3",
+  "Graphiques_Bouchon"        = "slateblue3",
   "Suivi_Gorgones"            = "steelblue3"
 )
 
