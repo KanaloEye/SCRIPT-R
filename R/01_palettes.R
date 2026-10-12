@@ -28,9 +28,9 @@ Formes_source <- c(
   "Suivi_Gorgones"            = 16
 )
 Libelles_source <- c(
-  "Extraction_ReefDB_LIT"     = "Extraction ReefDB",
-  "Extraction_ReefDB_Quadrat" = "Extraction ReefDB",
-  "Extraction_ReefDB_BELT"    = "Extraction ReefDB",
+  "Extraction_ReefDB_LIT"     = "Extraction BD Récif",
+  "Extraction_ReefDB_Quadrat" = "Extraction BD Récif",
+  "Extraction_ReefDB_BELT"    = "Extraction BD Récif",
   "Historique_ATE"            = "Historique ATE",
   "Rapport_EcoRecif_2024"      = "Rapport Eco Récif Environnement 2024",
   "Historique_IUCN"           = "Suivi LIT C. Bouchon 2002-2011",
