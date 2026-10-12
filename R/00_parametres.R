@@ -97,6 +97,10 @@ SURFACE_HISTO_OURSINS_M2      <- 60    # rapport Eco Récif Environnement : effe
 # (Echinometra, Eucidaris...) sont ignorees.
 ESPECES_OURSINS <- c("Diadema antillarum")
 
+# Taxons saisis au rang du genre : libelle affiche dans les graphiques
+# et les tableaux (convention "Genre spp.")
+LIBELLES_TAXONS <- c("Millepora" = "Millepora spp.")
+
 # Recrues : valeurs absentes du fichier ATE, lues sur les graphiques
 # C. Bouchon (juveniles / 30 m², divises par SURFACE_HISTO_RECRUES_M2).
 # Les autres barres de ces graphiques sont identiques aux valeurs ATE.

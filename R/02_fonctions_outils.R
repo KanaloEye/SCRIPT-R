@@ -64,6 +64,11 @@ harmoniser_station <- function(x) {
   resultat
 }
 
+# Libelle affiche d'un taxon (cf. LIBELLES_TAXONS, ex. Millepora -> Millepora spp.)
+renommer_taxons <- function(x) {
+  ifelse(!is.na(x) & x %in% names(LIBELLES_TAXONS), unname(LIBELLES_TAXONS[as.character(x)]), x)
+}
+
 nom_court_station <- function(station) {
   court <- STATIONS$court[match(station, STATIONS$nom)]
   ifelse(is.na(court), gsub("[^A-Za-z0-9]+", "_", station), court)

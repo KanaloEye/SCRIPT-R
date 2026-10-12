@@ -105,6 +105,7 @@ Palette_taxons_coralliens <- c(
   "Meandrina" = 'gray',
   "Meandrina jacksoni" = 'gray',
   "Millepora" = 'gold',
+  "Millepora spp." = 'gold',
   "Millepora alcicornis" = 'gold',
   "Millepora squarrosa" = 'goldenrod',
   "Montastraea cavernosa" = 'lightblue',
